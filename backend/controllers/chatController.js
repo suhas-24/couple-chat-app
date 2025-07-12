@@ -1,6 +1,8 @@
 const Chat = require('../models/Chat');
 const Message = require('../models/Message');
 const User = require('../models/User');
+// Context-aware AI service
+const { processIncomingMessage } = require('../services/contextAwareAI');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
@@ -112,9 +114,39 @@ exports.sendMessage = async (req, res) => {
     // Populate sender info
     await message.populate('sender', 'name avatar');
 
+    /* ------------------------------------------------------------------
+     * 🤖  Context-Aware AI processing
+     * ------------------------------------------------------------------ */
+    let aiMessage = null;
+    try {
+      const aiAnalysis = await processIncomingMessage(text, chatId, userId);
+
+      if (aiAnalysis?.isAIQuery && aiAnalysis.aiResponse) {
+        aiMessage = new Message({
+          chat: chatId,
+          // Re-use sender as a system-style marker; flag with metadata
+          sender: userId,
+          content: {
+            text: aiAnalysis.aiResponse,
+            type: 'text'
+          },
+          metadata: { isAIResponse: true },
+          // Immediately mark as read for sender
+          readBy: [{ user: userId }]
+        });
+
+        await aiMessage.save();
+        await aiMessage.populate('sender', 'name avatar');
+      }
+    } catch (aiErr) {
+      // Log but don’t interrupt normal flow
+      console.error('AI processing error:', aiErr);
+    }
+
     res.status(201).json({
       success: true,
-      message
+      message,
+      ...(aiMessage && { aiMessage })
     });
   } catch (error) {
     console.error('Error sending message:', error);
@@ -205,22 +237,54 @@ exports.uploadCsvChat = async (req, res) => {
       senderCounts: {}
     };
 
-    // Parse CSV file
+    // Parse CSV file with the new format: date,timestamp,sender,message,translated_message
     const results = await new Promise((resolve, reject) => {
       const parsedMessages = [];
       
       fs.createReadStream(req.file.path)
         .pipe(csv())
         .on('data', (row) => {
-          // Assuming CSV format: timestamp, sender, message
-          // Adjust based on actual CSV format
-          if (row.timestamp && row.sender && row.message) {
-            const messageDate = new Date(row.timestamp);
+          // Check if we have the required columns
+          if (row.date && row.timestamp && row.sender && (row.message || row.translated_message)) {
+            // Parse date and time
+            // Format: 07/04/25,7:52 am
+            const dateParts = row.date.split('/');
+            const timeParts = row.timestamp.split(' ');
+            
+            // Handle 2-digit year (25 -> 2025)
+            const year = dateParts[2].length === 2 ? `20${dateParts[2]}` : dateParts[2];
+            
+            // Parse time components
+            let hours = parseInt(timeParts[0].split(':')[0]);
+            const minutes = parseInt(timeParts[0].split(':')[1]);
+            
+            // Handle AM/PM
+            if (timeParts[1].toLowerCase() === 'pm' && hours < 12) {
+              hours += 12;
+            } else if (timeParts[1].toLowerCase() === 'am' && hours === 12) {
+              hours = 0;
+            }
+            
+            // Create date object
+            const messageDate = new Date(
+              parseInt(year),
+              parseInt(dateParts[0]) - 1, // Month is 0-indexed
+              parseInt(dateParts[1]),
+              hours,
+              minutes
+            );
+            
+            // Use translated_message if available, otherwise use message
+            const messageText = row.translated_message && row.translated_message.trim() !== '' 
+              ? row.translated_message 
+              : row.message;
             
             parsedMessages.push({
               timestamp: messageDate,
               senderName: row.sender,
-              text: row.message
+              text: messageText,
+              originalText: row.message,
+              wasTranslated: row.translated_message && row.translated_message !== row.message
             });
 
             // Update stats
@@ -266,7 +330,9 @@ exports.uploadCsvChat = async (req, res) => {
           metadata: {
             importedFrom: {
               source: 'csv',
-              originalTimestamp: msg.timestamp
+              originalTimestamp: msg.timestamp,
+              originalText: msg.originalText,
+              wasTranslated: msg.wasTranslated
             }
           },
           createdAt: msg.timestamp,

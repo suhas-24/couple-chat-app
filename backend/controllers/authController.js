@@ -10,7 +10,7 @@ const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 // Generate JWT Token
 const generateToken = (userId) => {
   return jwt.sign({ userId }, process.env.JWT_SECRET, {
-    expiresIn: process.env.JWT_EXPIRES_IN || '7d'
+    expiresIn: process.env.JWT_EXPIRE || '7d'  // Changed from JWT_EXPIRES_IN to JWT_EXPIRE
   });
 };
 
@@ -248,7 +248,7 @@ exports.updateProfile = async (req, res) => {
     });
 
     const user = await User.findByIdAndUpdate(
-      req.user.userId,
+      req.userId, // Fixed from req.user.userId to req.userId for consistency
       { $set: updates },
       { new: true, runValidators: true }
     );
@@ -297,7 +297,7 @@ exports.changePassword = async (req, res) => {
 
     const { currentPassword, newPassword } = req.body;
 
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.userId); // Fixed from req.user.userId to req.userId
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -339,7 +339,7 @@ exports.logout = async (req, res) => {
     // In a JWT implementation, logout is typically handled on the client-side
     // by removing the token from storage. However, we can log this action.
     
-    console.log(`User ${req.user.userId} logged out at ${new Date()}`);
+    console.log(`User ${req.userId} logged out at ${new Date()}`); // Fixed from req.user.userId to req.userId
     
     res.status(200).json({
       success: true,
@@ -350,7 +350,8 @@ exports.logout = async (req, res) => {
     console.error('Logout error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error during logout'
+      message: 'Server error during logout',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined // Added error details for consistency
     });
   }
 };
@@ -360,7 +361,7 @@ exports.deleteAccount = async (req, res) => {
   try {
     const { password } = req.body;
 
-    const user = await User.findById(req.user.userId);
+    const user = await User.findById(req.userId); // Fixed from req.user.userId to req.userId
     if (!user) {
       return res.status(404).json({
         success: false,

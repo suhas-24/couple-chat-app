@@ -385,6 +385,69 @@ export const aiAPI = {
     messageCount: number;
   }> => {
     return apiCall(`/ai/${chatId}/memory-summary?timeframe=${timeframe}`);
+  },
+
+  /* ------------------------------------------------------------------
+   * 🗣️  Conversational AI Assistant Endpoints
+   * ------------------------------------------------------------------ */
+
+  /**
+   * Ask the AI a free-form question about the chat history
+   * (e.g. “What did we do on this day?”).
+   */
+  askAboutChatHistory: async (
+    chatId: string,
+    question: string
+  ): Promise<{
+    success: boolean;
+    answer: string;
+    metadata?: any;
+  }> => {
+    return apiCall(`/ai/chat/${chatId}/ask`, {
+      method: 'POST',
+      body: JSON.stringify({ question })
+    });
+  },
+
+  /**
+   * Get the frequency of a given word/phrase inside the chat history.
+   */
+  getWordFrequency: async (
+    chatId: string,
+    word: string
+  ): Promise<{
+    success: boolean;
+    word: string;
+    totalCount: number;
+    countByParticipant: Record<string, number>;
+    messagesAnalyzed: number;
+  }> => {
+    return apiCall(
+      `/ai/chat/${chatId}/word-frequency?word=${encodeURIComponent(word)}`
+    );
+  },
+
+  /**
+   * Retrieve all messages (and an AI summary) for a specific calendar date.
+   * Date must be supplied in YYYY-MM-DD format.
+   */
+  getMessagesByDate: async (
+    chatId: string,
+    dateISO: string
+  ): Promise<{
+    success: boolean;
+    date: string;
+    messageCount: number;
+    messages: Array<{
+      sender: string;
+      content: string;
+      time: string;
+    }>;
+    summary: string;
+  }> => {
+    return apiCall(
+      `/ai/chat/${chatId}/messages-by-date?date=${encodeURIComponent(dateISO)}`
+    );
   }
 };
 

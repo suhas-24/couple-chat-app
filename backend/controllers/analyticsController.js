@@ -28,7 +28,7 @@ exports.getChatStats = async (req, res) => {
     const messagesBySender = await Message.aggregate([
       {
         $match: {
-          chat: mongoose.Types.ObjectId(chatId),
+          chat: new mongoose.Types.ObjectId(chatId),
           isDeleted: false
         }
       },
@@ -68,7 +68,7 @@ exports.getChatStats = async (req, res) => {
     const messageTypes = await Message.aggregate([
       {
         $match: {
-          chat: mongoose.Types.ObjectId(chatId),
+          chat: new mongoose.Types.ObjectId(chatId),
           isDeleted: false
         }
       },
@@ -87,7 +87,7 @@ exports.getChatStats = async (req, res) => {
     const dailyMessages = await Message.aggregate([
       {
         $match: {
-          chat: mongoose.Types.ObjectId(chatId),
+          chat: new mongoose.Types.ObjectId(chatId),
           createdAt: { $gte: thirtyDaysAgo },
           isDeleted: false
         }
@@ -115,13 +115,13 @@ exports.getChatStats = async (req, res) => {
     const hourlyActivity = await Message.aggregate([
       {
         $match: {
-          chat: mongoose.Types.ObjectId(chatId),
+          chat: new mongoose.Types.ObjectId(chatId),
           isDeleted: false
         }
       },
       {
         $group: {
-          _id: { $hour: '$createdAt' },
+          _id: { $hour: '$createdAt' }, // hour of the day (0-23)
           count: { $sum: 1 }
         }
       },
@@ -134,7 +134,7 @@ exports.getChatStats = async (req, res) => {
     const sentimentStats = await Message.aggregate([
       {
         $match: {
-          chat: mongoose.Types.ObjectId(chatId),
+          chat: new mongoose.Types.ObjectId(chatId),
           isDeleted: false,
           'metadata.sentiment': { $exists: true }
         }
@@ -284,7 +284,7 @@ exports.getMessageTimeline = async (req, res) => {
     }
 
     // Build date filter
-    const dateFilter = { chat: mongoose.Types.ObjectId(chatId), isDeleted: false };
+    const dateFilter = { chat: new mongoose.Types.ObjectId(chatId), isDeleted: false };
     if (startDate) dateFilter.createdAt = { $gte: new Date(startDate) };
     if (endDate) {
       dateFilter.createdAt = dateFilter.createdAt || {};

@@ -2,9 +2,56 @@ const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const { geminiService } = require('../services/geminiService');
 
+/**
+ * Helper function to check if AI services are available
+ * @returns {boolean} - Whether AI services are available
+ */
+const isAIServiceAvailable = () => {
+  // Check if Gemini API key is configured
+  const apiKey = process.env.GEMINI_API_KEY;
+  return apiKey && apiKey !== 'your-google-gemini-api-key-here';
+};
+
+/**
+ * Handle common AI service errors
+ * @param {Error} error - The error object
+ * @returns {Object} - Error response object
+ */
+const handleAIServiceError = (error) => {
+  // Check if it's an API key error
+  if (error.message && error.message.includes('API key not valid')) {
+    return {
+      error: 'Gemini API key is not configured or invalid. Please add a valid API key in your environment variables.',
+      details: process.env.NODE_ENV === 'development' ? 'Set GEMINI_API_KEY in your .env file' : undefined
+    };
+  }
+  
+  // Check if it's a model not found error
+  if (error.message && error.message.includes('Model not found')) {
+    return {
+      error: 'The specified Gemini model is not available. Please check your GEMINI_MODEL environment variable.',
+      details: process.env.NODE_ENV === 'development' ? 'Verify GEMINI_MODEL in your .env file' : undefined
+    };
+  }
+  
+  // Generic error
+  return {
+    error: 'AI service is temporarily unavailable',
+    details: process.env.NODE_ENV === 'development' ? error.message : undefined
+  };
+};
+
 // Get AI-powered relationship insights
 exports.getRelationshipInsights = async (req, res) => {
   try {
+    // Check if AI service is available
+    if (!isAIServiceAvailable()) {
+      return res.status(400).json({
+        success: false,
+        error: 'AI service is not configured. Please add your Gemini API key in the backend/.env file.'
+      });
+    }
+    
     const { chatId } = req.params;
     const userId = req.userId;
 
@@ -94,13 +141,25 @@ exports.getRelationshipInsights = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting AI insights:', error);
-    res.status(500).json({ error: 'Failed to generate insights' });
+    const errorResponse = handleAIServiceError(error);
+    res.status(500).json({ 
+      success: false,
+      ...errorResponse
+    });
   }
 };
 
 // Get AI-generated conversation starters
 exports.getConversationStarters = async (req, res) => {
   try {
+    // Check if AI service is available
+    if (!isAIServiceAvailable()) {
+      return res.status(400).json({
+        success: false,
+        error: 'AI service is not configured. Please add your Gemini API key in the backend/.env file.'
+      });
+    }
+    
     const { chatId } = req.params;
     const userId = req.userId;
 
@@ -157,13 +216,25 @@ exports.getConversationStarters = async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating conversation starters:', error);
-    res.status(500).json({ error: 'Failed to generate conversation starters' });
+    const errorResponse = handleAIServiceError(error);
+    res.status(500).json({ 
+      success: false,
+      ...errorResponse
+    });
   }
 };
 
 // Get AI analysis of emoji usage
 exports.getEmojiInsights = async (req, res) => {
   try {
+    // Check if AI service is available
+    if (!isAIServiceAvailable()) {
+      return res.status(400).json({
+        success: false,
+        error: 'AI service is not configured. Please add your Gemini API key in the backend/.env file.'
+      });
+    }
+    
     const { chatId } = req.params;
     const userId = req.userId;
 
@@ -218,13 +289,25 @@ exports.getEmojiInsights = async (req, res) => {
     });
   } catch (error) {
     console.error('Error getting emoji insights:', error);
-    res.status(500).json({ error: 'Failed to analyze emoji usage' });
+    const errorResponse = handleAIServiceError(error);
+    res.status(500).json({ 
+      success: false,
+      ...errorResponse
+    });
   }
 };
 
 // Get personalized date ideas
 exports.getDateIdeas = async (req, res) => {
   try {
+    // Check if AI service is available
+    if (!isAIServiceAvailable()) {
+      return res.status(400).json({
+        success: false,
+        error: 'AI service is not configured. Please add your Gemini API key in the backend/.env file.'
+      });
+    }
+    
     const { chatId } = req.params;
     const { location = 'local' } = req.query;
     const userId = req.userId;
@@ -281,13 +364,25 @@ exports.getDateIdeas = async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating date ideas:', error);
-    res.status(500).json({ error: 'Failed to generate date ideas' });
+    const errorResponse = handleAIServiceError(error);
+    res.status(500).json({ 
+      success: false,
+      ...errorResponse
+    });
   }
 };
 
 // Generate memory summary
 exports.generateMemorySummary = async (req, res) => {
   try {
+    // Check if AI service is available
+    if (!isAIServiceAvailable()) {
+      return res.status(400).json({
+        success: false,
+        error: 'AI service is not configured. Please add your Gemini API key in the backend/.env file.'
+      });
+    }
+    
     const { chatId } = req.params;
     const { timeframe = 'last month' } = req.query;
     const userId = req.userId;
@@ -357,6 +452,10 @@ exports.generateMemorySummary = async (req, res) => {
     });
   } catch (error) {
     console.error('Error generating memory summary:', error);
-    res.status(500).json({ error: 'Failed to generate memory summary' });
+    const errorResponse = handleAIServiceError(error);
+    res.status(500).json({ 
+      success: false,
+      ...errorResponse
+    });
   }
 };

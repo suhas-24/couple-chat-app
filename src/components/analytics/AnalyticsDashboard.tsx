@@ -42,6 +42,7 @@ export default function AnalyticsDashboard() {
   const [milestones, setMilestones] = useState<any[]>([]);
   const [emojiStats, setEmojiStats] = useState<any>(null);
   const [aiInsights, setAiInsights] = useState<any>(null);
+  const [aiError, setAiError] = useState<string>(''); // store AI-specific error
 
   useEffect(() => {
     if (currentChat) {
@@ -54,20 +55,19 @@ export default function AnalyticsDashboard() {
     
     setLoading(true);
     try {
+      // 1️⃣  Load core analytics first (no AI)
       const [
         statsRes,
         wordCloudRes,
         timelineRes,
         milestonesRes,
-        emojiRes,
-        aiRes
+        emojiRes
       ] = await Promise.all([
         api.analytics.getChatStats(currentChat._id),
         api.analytics.getWordCloud(currentChat._id, 30),
         api.analytics.getTimeline(currentChat._id, { groupBy: 'day' }),
         api.analytics.getMilestones(currentChat._id),
-        api.analytics.getEmojiStats(currentChat._id),
-        api.ai.getRelationshipInsights(currentChat._id)
+        api.analytics.getEmojiStats(currentChat._id)
       ]);
 
       setStats(statsRes.stats);
@@ -75,7 +75,20 @@ export default function AnalyticsDashboard() {
       setTimeline(timelineRes.timeline);
       setMilestones(milestonesRes.milestones);
       setEmojiStats(emojiRes.emojiStats);
-      setAiInsights(aiRes.insights);
+
+      // 2️⃣  Fetch AI insights separately so failure doesn’t block the rest
+      try {
+        const aiRes = await api.ai.getRelationshipInsights(currentChat._id);
+        setAiInsights(aiRes.insights);
+        setAiError('');
+      } catch (aiErr: any) {
+        console.warn('AI service unavailable:', aiErr?.message || aiErr);
+        setAiInsights(null);
+        setAiError(
+          aiErr?.message ||
+            'AI service is not configured. Please add your Gemini API key in backend/.env.'
+        );
+      }
     } catch (error) {
       console.error('Error loading analytics:', error);
     } finally {
@@ -170,8 +183,12 @@ export default function AnalyticsDashboard() {
             <Heart className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{aiInsights?.healthScore || 8}/10</div>
-            <p className="text-xs text-muted-foreground">Based on AI analysis</p>
+            <div className="text-2xl font-bold">
+              {aiInsights ? `${aiInsights.healthScore}/10` : 'N/A'}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {aiInsights ? 'Based on AI analysis' : 'Enable AI for score'}
+            </p>
           </CardContent>
         </Card>
 
@@ -339,39 +356,53 @@ export default function AnalyticsDashboard() {
         </TabsContent>
 
         <TabsContent value="insights" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>AI Relationship Analysis</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <h4 className="font-semibold mb-2">Positive Observations 💕</h4>
-                <ul className="list-disc list-inside space-y-1">
-                  {aiInsights?.positiveObservations.map((obs: string, i: number) => (
-                    <li key={i} className="text-sm">{obs}</li>
-                  ))}
-                </ul>
-              </div>
+          {aiInsights ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>AI Relationship Analysis</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <h4 className="font-semibold mb-2">Positive Observations 💕</h4>
+                  <ul className="list-disc list-inside space-y-1">
+                    {aiInsights.positiveObservations.map((obs: string, i: number) => (
+                      <li key={i} className="text-sm">{obs}</li>
+                    ))}
+                  </ul>
+                </div>
 
-              <div>
-                <h4 className="font-semibold mb-2">Communication Patterns 📊</h4>
-                <ul className="list-disc list-inside space-y-1">
-                  {aiInsights?.communicationPatterns.map((pattern: string, i: number) => (
-                    <li key={i} className="text-sm">{pattern}</li>
-                  ))}
-                </ul>
-              </div>
+                <div>
+                  <h4 className="font-semibold mb-2">Communication Patterns 📊</h4>
+                  <ul className="list-disc list-inside space-y-1">
+                    {aiInsights.communicationPatterns.map((pattern: string, i: number) => (
+                      <li key={i} className="text-sm">{pattern}</li>
+                    ))}
+                  </ul>
+                </div>
 
-              <div>
-                <h4 className="font-semibold mb-2">Suggestions for Growth 🌱</h4>
-                <ul className="list-disc list-inside space-y-1">
-                  {aiInsights?.suggestions.map((suggestion: string, i: number) => (
-                    <li key={i} className="text-sm">{suggestion}</li>
-                  ))}
-                </ul>
-              </div>
-            </CardContent>
-          </Card>
+                <div>
+                  <h4 className="font-semibold mb-2">Suggestions for Growth 🌱</h4>
+                  <ul className="list-disc list-inside space-y-1">
+                    {aiInsights.suggestions.map((suggestion: string, i: number) => (
+                      <li key={i} className="text-sm">{suggestion}</li>
+                    ))}
+                  </ul>
+                </div>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle>AI Insights Unavailable</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm text-muted-foreground">
+                  {aiError ||
+                    'AI insights are currently unavailable. Add a valid Gemini API key in backend/.env to enable this feature.'}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
       </Tabs>
     </div>

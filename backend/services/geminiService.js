@@ -1,35 +1,62 @@
 const fetch = require('node-fetch');
 
 class GeminiService {
-  constructor(apiKey) {
+  constructor(apiKey, model) {
     this.apiKey = apiKey || process.env.GEMINI_API_KEY;
-    this.baseUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent';
+    // Use the correct model name for Gemini 2.5 Flash
+    this.model =
+      model ||
+      process.env.GEMINI_MODEL ||
+      'gemini-2.5-flash';
+
+    // Official Google AI API endpoint
+    this.baseUrl = `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
   }
 
-  // Helper to make API calls
-  async generateContent(prompt, systemInstruction = '') {
+  // Helper to make API calls with the official Google format
+  async generateContent(prompt, systemInstruction = '', chatHistory = []) {
     try {
+      // Build the contents array with proper format
+      const contents = [];
+      
+      // Add system instruction as the first user message if provided
+      if (systemInstruction) {
+        contents.push({
+          role: 'user',
+          parts: [{ text: systemInstruction }]
+        });
+        contents.push({
+          role: 'model',
+          parts: [{ text: "I understand. I'll help you with that." }]
+        });
+      }
+      
+      // Add chat history if provided
+      chatHistory.forEach(msg => {
+        contents.push({
+          role: msg.role || 'user',
+          parts: [{ text: msg.content }]
+        });
+      });
+      
+      // Add the current prompt
+      contents.push({
+        role: 'user',
+        parts: [{ text: prompt }]
+      });
+
       const response = await fetch(`${this.baseUrl}?key=${this.apiKey}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          systemInstruction: {
-            parts: [{
-              text: systemInstruction
-            }]
-          },
+          contents,
           generationConfig: {
             temperature: 0.7,
             topK: 40,
             topP: 0.95,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
           },
           safetySettings: [
             {
@@ -37,7 +64,7 @@ class GeminiService {
               threshold: 'BLOCK_NONE'
             },
             {
-              category: 'HARM_CATEGORY_HATE_SPEECH',
+              category: 'HARM_CATEGORY_HATE_SPEECH', 
               threshold: 'BLOCK_NONE'
             },
             {
@@ -52,6 +79,14 @@ class GeminiService {
         })
       });
 
+      // Surface non-2xx HTTP errors early
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        throw new Error(
+          `Gemini API HTTP ${response.status}: ${errorText || response.statusText}`
+        );
+      }
+
       const data = await response.json();
       
       if (data.error) {
@@ -63,6 +98,122 @@ class GeminiService {
       console.error('Gemini API error:', error);
       throw error;
     }
+  }
+
+  // NEW: Conversational AI that can answer questions about chat history
+  async askAboutChatHistory(question, chatMessages, chatMetadata) {
+    const systemInstruction = `You are a knowledgeable AI assistant for a couple's chat application. 
+You have access to their complete chat history and can answer questions about their conversations, patterns, memories, and activities.
+
+Be warm, supportive, and conversational in your responses. Use emojis occasionally to make it feel more personal.
+When providing statistics or dates, be specific and accurate.
+If you don't have enough information to answer a question, say so politely and suggest what kind of information would help.`;
+
+    // Prepare context from chat history
+    const chatContext = this.prepareChatContext(chatMessages, chatMetadata);
+    
+    const prompt = `Based on the chat history and metadata below, please answer this question: "${question}"
+
+${chatContext}
+
+Please provide a helpful, accurate, and engaging response.`;
+
+    return await this.generateContent(prompt, systemInstruction);
+  }
+
+  // Helper to prepare chat context for AI analysis
+  prepareChatContext(messages, metadata) {
+    const sortedMessages = messages.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    const totalMessages = messages.length;
+    
+    // Get basic statistics
+    const messagesBySender = {};
+    const messagesByDate = {};
+    const wordCounts = {};
+    
+    messages.forEach(msg => {
+      // Count by sender
+      const senderName = msg.sender?.name || 'Unknown';
+      messagesBySender[senderName] = (messagesBySender[senderName] || 0) + 1;
+      
+      // Count by date
+      const date = new Date(msg.createdAt).toDateString();
+      if (!messagesByDate[date]) messagesByDate[date] = [];
+      messagesByDate[date].push(msg);
+      
+      // Count words
+      const words = msg.content.text.toLowerCase().split(/\s+/);
+      words.forEach(word => {
+        if (word.length > 2) {
+          wordCounts[word] = (wordCounts[word] || 0) + 1;
+        }
+      });
+    });
+    
+    // Get recent messages sample
+    const recentMessages = sortedMessages.slice(-50).map(msg => {
+      return `[${new Date(msg.createdAt).toLocaleDateString()}] ${msg.sender?.name}: ${msg.content.text}`;
+    }).join('\n');
+    
+    // Get first and last message dates
+    const firstMessage = sortedMessages[0];
+    const lastMessage = sortedMessages[sortedMessages.length - 1];
+    
+    return `
+=== CHAT STATISTICS ===
+Total Messages: ${totalMessages}
+Participants: ${Object.keys(messagesBySender).join(', ')}
+Messages by Sender: ${Object.entries(messagesBySender).map(([name, count]) => `${name}: ${count}`).join(', ')}
+First Message: ${firstMessage ? new Date(firstMessage.createdAt).toLocaleDateString() : 'N/A'}
+Last Message: ${lastMessage ? new Date(lastMessage.createdAt).toLocaleDateString() : 'N/A'}
+Total Days with Messages: ${Object.keys(messagesByDate).length}
+
+=== CHAT METADATA ===
+Relationship Start: ${metadata?.relationshipStartDate || 'Not set'}
+Anniversary Date: ${metadata?.anniversaryDate || 'Not set'}
+Chat Theme: ${metadata?.theme || 'classic'}
+
+=== SAMPLE RECENT MESSAGES ===
+${recentMessages}
+
+=== TOP WORDS USED ===
+${Object.entries(wordCounts)
+  .sort((a, b) => b[1] - a[1])
+  .slice(0, 20)
+  .map(([word, count]) => `${word}: ${count}`)
+  .join(', ')}
+
+=== MESSAGES BY DATE (last 10 days) ===
+${Object.entries(messagesByDate)
+  .slice(-10)
+  .map(([date, msgs]) => `${date}: ${msgs.length} messages`)
+  .join('\n')}
+    `;
+  }
+
+  // Enhanced method with chat context for better insights
+  async analyzeRelationshipHealthWithContext(messages, stats, chatMetadata) {
+    const systemInstruction = `You are a relationship counselor AI specializing in analyzing couple communication patterns. 
+Be supportive, positive, and constructive in your analysis. Focus on strengths while gently suggesting improvements.
+Provide specific insights based on the actual chat data provided.`;
+
+    const chatContext = this.prepareChatContext(messages, chatMetadata);
+    
+    const prompt = `Analyze this couple's relationship based on their chat data:
+
+${chatContext}
+
+Provide insights in this exact JSON format:
+{
+  "healthScore": 8,
+  "communicationPatterns": ["pattern1", "pattern2"],
+  "positiveObservations": ["observation1", "observation2"],
+  "areasForGrowth": ["area1", "area2"],
+  "suggestions": ["suggestion1", "suggestion2"]
+}`;
+
+    const analysis = await this.generateContent(prompt, systemInstruction);
+    return this.parseRelationshipAnalysis(analysis);
   }
 
   // Analyze chat sentiment and relationship health
@@ -173,47 +324,52 @@ Write a heartfelt summary that:
 
   // Helper methods to parse responses
   parseRelationshipAnalysis(response) {
-    // Simple parsing - in production, use more sophisticated parsing
-    const lines = response.split('\n');
-    const analysis = {
-      healthScore: 8,
-      communicationPatterns: [],
-      positiveObservations: [],
-      areasForGrowth: [],
-      suggestions: []
-    };
+    try {
+      // First try to parse as JSON
+      return JSON.parse(response);
+    } catch (e) {
+      // Fall back to simple parsing
+      const lines = response.split('\n');
+      const analysis = {
+        healthScore: 8,
+        communicationPatterns: [],
+        positiveObservations: [],
+        areasForGrowth: [],
+        suggestions: []
+      };
 
-    let currentSection = '';
-    lines.forEach(line => {
-      if (line.includes('score') && line.match(/\d+/)) {
-        analysis.healthScore = parseInt(line.match(/\d+/)[0]);
-      } else if (line.toLowerCase().includes('pattern')) {
-        currentSection = 'patterns';
-      } else if (line.toLowerCase().includes('positive')) {
-        currentSection = 'positive';
-      } else if (line.toLowerCase().includes('growth')) {
-        currentSection = 'growth';
-      } else if (line.toLowerCase().includes('suggestion')) {
-        currentSection = 'suggestions';
-      } else if (line.trim()) {
-        switch (currentSection) {
-          case 'patterns':
-            analysis.communicationPatterns.push(line.trim());
-            break;
-          case 'positive':
-            analysis.positiveObservations.push(line.trim());
-            break;
-          case 'growth':
-            analysis.areasForGrowth.push(line.trim());
-            break;
-          case 'suggestions':
-            analysis.suggestions.push(line.trim());
-            break;
+      let currentSection = '';
+      lines.forEach(line => {
+        if (line.includes('score') && line.match(/\d+/)) {
+          analysis.healthScore = parseInt(line.match(/\d+/)[0]);
+        } else if (line.toLowerCase().includes('pattern')) {
+          currentSection = 'patterns';
+        } else if (line.toLowerCase().includes('positive')) {
+          currentSection = 'positive';
+        } else if (line.toLowerCase().includes('growth')) {
+          currentSection = 'growth';
+        } else if (line.toLowerCase().includes('suggestion')) {
+          currentSection = 'suggestions';
+        } else if (line.trim()) {
+          switch (currentSection) {
+            case 'patterns':
+              analysis.communicationPatterns.push(line.trim());
+              break;
+            case 'positive':
+              analysis.positiveObservations.push(line.trim());
+              break;
+            case 'growth':
+              analysis.areasForGrowth.push(line.trim());
+              break;
+            case 'suggestions':
+              analysis.suggestions.push(line.trim());
+              break;
+          }
         }
-      }
-    });
+      });
 
-    return analysis;
+      return analysis;
+    }
   }
 
   parseConversationStarters(response) {

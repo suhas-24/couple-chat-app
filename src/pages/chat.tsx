@@ -213,7 +213,8 @@ export default function ChatPage() {
                   content: msg.content.text,
                   sender: msg.sender._id === user._id ? 'me' : 'partner',
                   timestamp: new Date(msg.createdAt),
-                  emoji: msg.metadata.reactions?.[0]?.emoji
+                  emoji: msg.metadata.reactions?.[0]?.emoji,
+                  isAI: !!msg.metadata?.isAIResponse
                 }))}
                 partnerName={currentChat.participants.find(p => p._id !== user._id)?.name || 'Partner'}
                 avatars={{

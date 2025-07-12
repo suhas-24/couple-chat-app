@@ -11,28 +11,62 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-app.use(cors({
-  origin: function(origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
+/**
+ * ---------------------------------------------------------------------------
+ * CORS configuration
+ * ---------------------------------------------------------------------------
+ *  - Accepts any localhost:<port> in development (helpful for Storybook, Vercel
+ *    previews, etc.).
+ *  - In production uses comma-separated CORS_ALLOWED_ORIGINS or FRONTEND_URL.
+ *  - Handles requests without Origin header (e.g. curl / mobile apps).
+ *  - Exposes all common headers / methods and supports credentials.
+ *  - Ensures proper 204 status for pre-flight OPTIONS.
+ */
+const allowedOrigins = (
+  process.env.CORS_ALLOWED_ORIGINS ||
+  process.env.FRONTEND_URL ||
+  'http://localhost:3000'
+)
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin(origin, callback) {
+    // No origin (curl, mobile) – allow.
     if (!origin) return callback(null, true);
-    
-    // Allow localhost with any port for development
-    if (origin.includes('localhost')) {
+
+    // Allow any localhost with arbitrary port in dev.
+    // Matches: http://localhost, https://localhost, and any port variant like http://localhost:3001
+    if (/^https?:\/\/localhost(?::\d+)?$/.test(origin)) {
       return callback(null, true);
     }
-    
-    // Use configured frontend URL for production
-    const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
-    if (origin === allowedOrigin) {
+
+    // Check whitelist for production URLs.
+    if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
-    
-    callback(new Error('Not allowed by CORS'));
+
+    // Otherwise reject.
+    return callback(new Error('Not allowed by CORS'));
   },
+  methods: 'GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS',
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin'
+  ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+  optionsSuccessStatus: 204,
+  preflightContinue: false
+};
+
+app.use(cors(corsOptions));
+// Handle pre-flight explicitly (some proxies strip automatic handling).
+app.options('*', cors(corsOptions));
+
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
