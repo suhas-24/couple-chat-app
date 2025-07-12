@@ -45,7 +45,7 @@ const AIChatAssistant: React.FC = () => {
       const newSuggestions: AISuggestion[] = [];
       
       // Process conversation starters
-      if (conversationRes.success && conversationRes.conversationStarters) {
+      if (conversationRes.success && 'conversationStarters' in conversationRes) {
         conversationRes.conversationStarters.forEach((starter: string, i: number) => {
           newSuggestions.push({
             id: `conv-${i}`,
@@ -57,7 +57,7 @@ const AIChatAssistant: React.FC = () => {
       }
       
       // Process date ideas
-      if (dateRes.success && dateRes.dateIdeas) {
+      if (dateRes.success && 'dateIdeas' in dateRes) {
         dateRes.dateIdeas.forEach((idea: any, i: number) => {
           newSuggestions.push({
             id: `date-${i}`,
@@ -69,7 +69,7 @@ const AIChatAssistant: React.FC = () => {
       }
       
       // Process relationship insights
-      if (insightRes.success && insightRes.insights) {
+      if (insightRes.success && 'insights' in insightRes) {
         // Add positive observations
         insightRes.insights.positiveObservations?.forEach((obs: string, i: number) => {
           newSuggestions.push({

@@ -17,6 +17,20 @@ module.exports = {
     },
     extend: {
       colors: {
+        // LoveChat Theme Colors
+        primary: '#ef427c',
+        secondary: '#311b23',
+        'dark-bg': '#121212',
+        'sidebar-bg': '#1e1e1e',
+        'chatlist-bg': '#121212',
+        'input-bg': '#2c2c2c',
+        'border-color': '#333333',
+        'text-primary': '#ffffff',
+        'text-secondary': '#a3a3a3',
+        'chat-bubble-bg': '#26161a',
+        'ai-chat-bubble-bg': '#2a2752',
+        'ai-text-primary': '#a399ff',
+        // Keep existing colors for compatibility
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -70,7 +84,10 @@ module.exports = {
         "accordion-down": "accordion-down 0.2s ease-out",
         "accordion-up": "accordion-up 0.2s ease-out",
       },
+      fontFamily: {
+        'plus-jakarta': ['Plus Jakarta Sans', 'Noto Sans', 'sans-serif'],
+      },
     },
   },
-  plugins: [require("tailwindcss-animate")],
+  plugins: [require("tailwindcss-animate"), require('@tailwindcss/forms')],
 }

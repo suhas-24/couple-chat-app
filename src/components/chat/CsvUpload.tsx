@@ -37,41 +37,60 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
   };
 
   return (
-    <div className="bg-pink-50 border-2 border-pink-200 rounded-lg p-6 shadow flex flex-col items-center max-w-md mx-auto">
-      <h3 className="text-pink-600 font-bold text-xl mb-4">Upload your chat history 📂</h3>
-      <label
-        htmlFor="csv-file-input"
-        className="w-full cursor-pointer py-3 px-6 bg-white border border-pink-300 rounded-full shadow hover:bg-pink-100 mb-4 transition font-semibold text-pink-600 flex items-center justify-center"
-      >
-        <span className="mr-2">Select CSV File</span>
-        <span role="img" aria-label="file">🗂️</span>
-      </label>
-      <input
-        id="csv-file-input"
-        type="file"
-        accept=".csv"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+    <div className="flex flex-col items-center w-full">
+      <div className="bg-input-bg/50 border-2 border-dashed border-border-color rounded-lg p-6 w-full text-center hover:bg-input-bg/70 transition">
+        <label
+          htmlFor="csv-file-input"
+          className="cursor-pointer flex flex-col items-center space-y-3"
+        >
+          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
+            <span className="text-2xl">📂</span>
+          </div>
+          <div>
+            <p className="text-text-primary font-medium">
+              {fileName || 'Click to upload CSV file'}
+            </p>
+            <p className="text-text-secondary text-sm mt-1">
+              Supports WhatsApp and other chat exports
+            </p>
+          </div>
+        </label>
+        <input
+          id="csv-file-input"
+          type="file"
+          accept=".csv"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+      </div>
+      
       {fileName && (
-        <div className="mt-3 w-full">
-          <div className="flex items-center mb-2">
-            <span className="text-pink-500 font-bold mr-2">{fileName}</span>
+        <div className="mt-4 w-full bg-input-bg rounded-lg p-4">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-primary font-medium">{fileName}</span>
             <button
-              className="ml-auto text-xs text-pink-400 underline hover:text-pink-600"
+              className="text-xs text-text-secondary hover:text-primary underline"
               onClick={handleReset}
               type="button"
             >
-              Reset
+              Remove
             </button>
           </div>
-          <div className="text-gray-500 text-xs pl-1">
-            Size: {meta?.size} | Last Modified: {meta?.lastModified}
+          <div className="text-text-secondary text-xs">
+            Size: {meta?.size} | Modified: {meta?.lastModified}
           </div>
         </div>
       )}
-      {error && <div className="mt-2 text-red-500 font-semibold text-sm">{error}</div>}
-      <p className="text-pink-400 mt-6 text-sm">Your CSV never leaves your browser unless you chat with Gemini AI 💑</p>
+      
+      {error && (
+        <div className="mt-4 w-full bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+          <p className="text-red-400 text-sm">{error}</p>
+        </div>
+      )}
+      
+      <p className="text-text-secondary text-xs mt-4 text-center">
+        Your data is secure and processed locally
+      </p>
     </div>
   );
 };

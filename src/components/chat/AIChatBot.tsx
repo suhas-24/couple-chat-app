@@ -206,7 +206,7 @@ const AIChatBot: React.FC = () => {
           : msg
       ));
     } else {
-      throw new Error(response.error || 'Failed to get a response');
+      throw new Error('Failed to get a response');
     }
   };
 

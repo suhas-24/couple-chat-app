@@ -1,59 +1,87 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import { useChat } from '@/context/ChatContext';
 import { api } from '@/services/api';
-import ChatWindow from '@/components/chat/ChatWindow';
 import CsvUpload from '@/components/chat/CsvUpload';
-import { Button } from '@/components/ui/button';
 import { 
-  Settings, 
-  MessageCircle, 
+  Heart, 
+  Send, 
   Upload, 
-  BarChart3, 
-  LogOut,
+  Bot, 
+  MessageSquare, 
   Plus,
-  Heart
+  Search,
+  Settings,
+  LogOut,
+  Menu,
+  X,
+  Sparkles,
+  BarChart3
 } from 'lucide-react';
 
 export default function ChatPage() {
-  const { user, logout } = useAuth();
-  const { chats, currentChat, setCurrentChat, loadChats, messages, sendMessage } = useChat();
+  const [message, setMessage] = useState('');
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
+  const [showMobileMenu, setShowMobileMenu] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showNewChatModal, setShowNewChatModal] = useState(false);
   const [showCsvUpload, setShowCsvUpload] = useState(false);
-  const [showCreateChat, setShowCreateChat] = useState(false);
   const [partnerEmail, setPartnerEmail] = useState('');
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const { user, logout } = useAuth();
+  const { chats, currentChat, setCurrentChat, messages, sendMessage, loadChats } = useChat();
   const router = useRouter();
 
+  // Update selected chat when currentChat changes
+  useEffect(() => {
+    if (currentChat) {
+      setSelectedChatId(currentChat._id);
+    }
+  }, [currentChat]);
+
+  // Redirect if not authenticated
   useEffect(() => {
     if (!user) {
-      router.push('/');
+      router.push('/login');
     }
   }, [user, router]);
 
-  const handleCreateChat = async () => {
+  // Auto-scroll to bottom of messages
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
+
+  const handleSendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!message.trim() || !selectedChatId) return;
+
+    await sendMessage(message);
+    setMessage('');
+  };
+
+  const handleCreateChat = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partnerEmail.trim()) return;
+
     try {
-      // Create or get existing chat using partner email
       const response = await api.chat.createOrGetChat(partnerEmail);
-      
       if (response.success) {
-        // Reload chats to include the new one
         await loadChats();
-        
-        // Set the new chat as current
         setCurrentChat(response.chat);
-        
-        // Close the modal
-        setShowCreateChat(false);
+        setShowNewChatModal(false);
         setPartnerEmail('');
       }
     } catch (error: any) {
-      console.error('Error creating chat:', error);
-      alert(error.message || 'Failed to create chat. Please check the email and try again.');
+      console.error('Failed to create chat:', error);
+      alert(error.message || 'Failed to create chat');
     }
   };
 
-  const handleViewAnalytics = () => {
-    router.push('/analytics');
+  const handleLogout = async () => {
+    await logout();
+    router.push('/login');
   };
 
   const handleCsvUpload = async (file: File) => {
@@ -63,7 +91,7 @@ export default function ChatPage() {
     }
     
     try {
-      // In a real implementation, you would upload the CSV file here
+      // TODO: Implement actual CSV upload
       alert(`Uploading ${file.name} to ${currentChat.chatName}`);
       setShowCsvUpload(false);
     } catch (error) {
@@ -72,235 +100,299 @@ export default function ChatPage() {
     }
   };
 
-  if (!user) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-pink-500"></div>
-      </div>
-    );
-  }
+  const filteredChats = chats.filter(chat => {
+    const partner = chat.participants.find(p => p._id !== user?._id);
+    return partner?.name?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
+  const selectedChat = chats.find(c => c._id === selectedChatId);
+  const currentMessages = messages || [];
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex h-screen bg-dark-bg">
       {/* Sidebar */}
-      <div className="w-80 bg-white border-r border-gray-200 flex flex-col">
-        {/* User Header */}
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between">
+      <div className={`${showMobileMenu ? 'block' : 'hidden'} md:block w-80 bg-sidebar-bg border-r border-border-color flex flex-col`}>
+        {/* User Profile */}
+        <div className="p-6 border-b border-border-color">
+          <div className="flex items-center justify-between mb-4">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-r from-pink-400 to-red-400 rounded-full flex items-center justify-center text-white font-bold">
-                {user.name.charAt(0).toUpperCase()}
+              <div className="w-12 h-12 bg-primary rounded-full flex items-center justify-center">
+                <span className="text-white font-semibold text-lg">
+                  {user?.name?.[0]?.toUpperCase() || 'U'}
+                </span>
               </div>
               <div>
-                <p className="font-semibold text-gray-800">{user.name}</p>
-                <p className="text-sm text-gray-500">Online 💚</p>
+                <h3 className="text-text-primary font-semibold">{user?.name}</h3>
+                <p className="text-text-secondary text-sm">{user?.email}</p>
               </div>
             </div>
             <button
-              onClick={logout}
-              className="text-gray-500 hover:text-red-500 transition-colors"
-              title="Logout"
+              onClick={() => setShowMobileMenu(false)}
+              className="md:hidden text-text-secondary hover:text-text-primary"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          
+          {/* Action Buttons */}
+          <div className="flex space-x-2">
+            <button
+              onClick={() => setShowNewChatModal(true)}
+              className="flex-1 bg-primary hover:bg-primary/90 text-white px-4 py-2 rounded-lg flex items-center justify-center space-x-2 transition"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Chat</span>
+            </button>
+            <button className="p-2 bg-input-bg hover:bg-input-bg/80 text-text-secondary rounded-lg transition">
+              <Settings className="w-5 h-5" />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 bg-input-bg hover:bg-input-bg/80 text-text-secondary rounded-lg transition"
             >
               <LogOut className="w-5 h-5" />
             </button>
           </div>
         </div>
 
-        {/* Actions */}
-        <div className="p-4 space-y-2">
-          <Button
-            onClick={() => setShowCreateChat(true)}
-            className="w-full bg-gradient-to-r from-pink-500 to-red-500 hover:from-pink-600 hover:to-red-600"
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Start New Chat
-          </Button>
+        {/* Search */}
+        <div className="p-4 border-b border-border-color">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-secondary" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search chats..."
+              className="w-full pl-10 pr-4 py-2 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
+            />
+          </div>
         </div>
 
         {/* Chat List */}
         <div className="flex-1 overflow-y-auto">
-          <div className="px-4 py-2">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-              Your Chats
-            </h3>
-          </div>
-          <div className="space-y-1 px-2">
-            {chats.map((chat) => (
+          {filteredChats.length > 0 ? (
+            filteredChats.map((chat) => {
+              const partner = chat.participants.find(p => p._id !== user?._id);
+              return (
+                <button
+                  key={chat._id}
+                  onClick={() => {
+                    setCurrentChat(chat);
+                    setShowMobileMenu(false);
+                  }}
+                  className={`w-full p-4 border-b border-border-color hover:bg-chatlist-bg/50 transition ${
+                    selectedChatId === chat._id ? 'bg-chatlist-bg' : ''
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                      <Heart className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1 text-left">
+                      <h4 className="text-text-primary font-medium">
+                        {partner?.name || 'Unknown'}
+                      </h4>
+                      <p className="text-text-secondary text-sm truncate">
+                        Start a conversation
+                      </p>
+                    </div>
+                  </div>
+                </button>
+              );
+            })
+          ) : (
+            <div className="p-8 text-center">
+              <p className="text-text-secondary">No chats yet</p>
               <button
-                key={chat._id}
-                onClick={() => setCurrentChat(chat)}
-                className={`w-full p-3 rounded-lg text-left transition-all duration-200 ${
-                  currentChat?._id === chat._id
-                    ? 'bg-pink-50 border border-pink-200'
-                    : 'hover:bg-gray-50'
-                }`}
+                onClick={() => setShowNewChatModal(true)}
+                className="mt-4 text-primary hover:text-primary/80 font-medium"
               >
-                <div className="flex items-center space-x-3">
-                  <div className="flex-shrink-0">
-                    <Heart className="w-5 h-5 text-pink-500" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium text-gray-900 truncate">
-                      {chat.chatName}
-                    </p>
-                    <p className="text-sm text-gray-500">
-                      {chat.participants
-                        .filter(p => p._id !== user._id)
-                        .map(p => p.name)
-                        .join(', ')}
-                    </p>
-                  </div>
-                </div>
+                Start your first chat
               </button>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="p-4 border-t border-gray-200 space-y-2">
-          <Button
-            variant="outline"
-            className="w-full"
+        {/* Bottom Actions */}
+        <div className="p-4 border-t border-border-color space-y-2">
+          <button 
             onClick={() => setShowCsvUpload(true)}
+            className="w-full p-3 bg-input-bg hover:bg-input-bg/80 rounded-lg flex items-center space-x-3 transition"
           >
-            <Upload className="w-4 h-4 mr-2" />
-            Import Chat History
-          </Button>
-          <Button
-            variant="outline"
-            className="w-full"
-            onClick={handleViewAnalytics}
+            <Upload className="w-5 h-5 text-text-secondary" />
+            <span className="text-text-primary">Upload Chat History</span>
+          </button>
+          <button 
+            onClick={() => router.push('/analytics')}
+            className="w-full p-3 bg-input-bg hover:bg-input-bg/80 rounded-lg flex items-center space-x-3 transition"
           >
-            <BarChart3 className="w-4 h-4 mr-2" />
-            View Analytics
-          </Button>
+            <BarChart3 className="w-5 h-5 text-text-secondary" />
+            <span className="text-text-primary">View Analytics</span>
+          </button>
         </div>
       </div>
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col">
-        {currentChat ? (
-          <>
-            {/* Chat Header */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center space-x-3">
-                  <Heart className="w-6 h-6 text-pink-500" />
-                  <div>
-                    <h2 className="text-lg font-semibold text-gray-900">
-                      {currentChat.chatName}
-                    </h2>
-                    <p className="text-sm text-gray-500">
-                      {currentChat.participants.length} participants
-                    </p>
+        {/* Chat Header */}
+        <div className="bg-sidebar-bg border-b border-border-color p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-3">
+              <button
+                onClick={() => setShowMobileMenu(true)}
+                className="md:hidden text-text-secondary hover:text-text-primary"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+              {selectedChat ? (
+                <>
+                  <div className="w-10 h-10 bg-primary/20 rounded-full flex items-center justify-center">
+                    <Heart className="w-5 h-5 text-primary" />
                   </div>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => router.push('/settings')}
-                >
-                  <Settings className="w-5 h-5" />
-                </Button>
+                  <div>
+                    <h2 className="text-text-primary font-semibold">
+                      {selectedChat.participants.find(p => p._id !== user?._id)?.name || 'Chat'}
+                    </h2>
+                    <p className="text-text-secondary text-sm">Active now</p>
+                  </div>
+                </>
+              ) : (
+                <h2 className="text-text-primary font-semibold">Select a chat to start messaging</h2>
+              )}
+            </div>
+            
+            {selectedChat && (
+              <button className="p-2 bg-ai-chat-bubble-bg hover:bg-ai-chat-bubble-bg/80 rounded-lg transition">
+                <Bot className="w-5 h-5 text-ai-text-primary" />
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Messages Area */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {selectedChat ? (
+            <>
+              {currentMessages.map((msg) => {
+                const isSentByMe = msg.sender._id === user?._id;
+                const isAI = false; // AI responses would be handled differently
+                
+                return (
+                  <div
+                    key={msg._id}
+                    className={`flex ${isSentByMe ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-xs md:max-w-md px-4 py-3 rounded-2xl ${
+                        isAI 
+                          ? 'bg-ai-chat-bubble-bg text-ai-text-primary'
+                          : isSentByMe
+                          ? 'bg-primary text-white'
+                          : 'bg-chat-bubble-bg text-text-primary'
+                      }`}
+                    >
+                      <p className="break-words">{msg.content.text}</p>
+                      <p className={`text-xs mt-1 ${
+                        isAI
+                          ? 'text-ai-text-primary/70'
+                          : isSentByMe 
+                          ? 'text-white/70' 
+                          : 'text-text-secondary'
+                      }`}>
+                        {new Date(msg.createdAt).toLocaleTimeString([], { 
+                          hour: '2-digit', 
+                          minute: '2-digit' 
+                        })}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={messagesEndRef} />
+            </>
+          ) : (
+            <div className="flex-1 flex items-center justify-center">
+              <div className="text-center">
+                <MessageSquare className="w-16 h-16 text-text-secondary/30 mx-auto mb-4" />
+                <p className="text-text-secondary">Select a chat to view messages</p>
               </div>
             </div>
+          )}
+        </div>
 
-            {/* Chat Window */}
-            <div className="flex-1">
-              <ChatWindow 
-                messages={messages.map(msg => ({
-                  id: msg._id,
-                  content: msg.content.text,
-                  sender: msg.sender._id === user._id ? 'me' : 'partner',
-                  timestamp: new Date(msg.createdAt),
-                  emoji: msg.metadata.reactions?.[0]?.emoji,
-                  isAI: !!msg.metadata?.isAIResponse
-                }))}
-                partnerName={currentChat.participants.find(p => p._id !== user._id)?.name || 'Partner'}
-                avatars={{
-                  me: `https://ui-avatars.com/api/?name=${user.name}&background=ec4899&color=fff`,
-                  partner: `https://ui-avatars.com/api/?name=${currentChat.participants.find(p => p._id !== user._id)?.name || 'Partner'}&background=8b5cf6&color=fff`
-                }}
-                onSend={async (message) => {
-                  await sendMessage(message);
-                }}
-                isTyping={false}
+        {/* Message Input */}
+        {selectedChat && (
+          <div className="p-4 border-t border-border-color">
+            <form onSubmit={handleSendMessage} className="flex space-x-3">
+              <input
+                type="text"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder="Type a message..."
+                className="flex-1 px-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
               />
-            </div>
-          </>
-        ) : (
-          <div className="flex-1 flex items-center justify-center">
-            <div className="text-center">
-              <MessageCircle className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">
-                No chat selected
-              </h3>
-              <p className="text-gray-500 mb-4">
-                Choose a chat from the sidebar or start a new one
-              </p>
-              <Button
-                onClick={() => setShowCreateChat(true)}
-                className="bg-gradient-to-r from-pink-500 to-red-500 hover:from-pink-600 hover:to-red-600"
+              <button
+                type="submit"
+                disabled={!message.trim()}
+                className="px-6 py-3 bg-primary hover:bg-primary/90 text-white rounded-lg flex items-center space-x-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <Plus className="w-4 h-4 mr-2" />
-                Start New Chat
-              </Button>
-            </div>
+                <Send className="w-5 h-5" />
+              </button>
+            </form>
           </div>
         )}
       </div>
 
-      {/* CSV Upload Modal */}
-      {showCsvUpload && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Import Chat History</h3>
-            <CsvUpload onUpload={handleCsvUpload} />
-            <Button
-              variant="outline"
-              className="w-full mt-4"
-              onClick={() => setShowCsvUpload(false)}
-            >
-              Cancel
-            </Button>
+      {/* New Chat Modal */}
+      {showNewChatModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-sidebar-bg rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-text-primary mb-4">Start New Chat</h3>
+            <form onSubmit={handleCreateChat}>
+              <input
+                type="email"
+                value={partnerEmail}
+                onChange={(e) => setPartnerEmail(e.target.value)}
+                placeholder="Enter partner's email"
+                className="w-full px-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent mb-4"
+                required
+              />
+              <div className="flex space-x-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowNewChatModal(false);
+                    setPartnerEmail('');
+                  }}
+                  className="flex-1 px-4 py-2 bg-input-bg hover:bg-input-bg/80 text-text-primary rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 px-4 py-2 bg-primary hover:bg-primary/90 text-white rounded-lg transition"
+                >
+                  Create Chat
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
-      {/* Create Chat Modal */}
-      {showCreateChat && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4">Start New Chat</h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Enter your partner's email to connect
-            </p>
-            <input
-              type="email"
-              value={partnerEmail}
-              onChange={(e) => setPartnerEmail(e.target.value)}
-              placeholder="partner@email.com"
-              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-pink-500"
-            />
-            <div className="flex space-x-3 mt-4">
-              <Button
-                className="flex-1 bg-gradient-to-r from-pink-500 to-red-500 hover:from-pink-600 hover:to-red-600"
-                onClick={handleCreateChat}
-                disabled={!partnerEmail}
-              >
-                Create Chat
-              </Button>
-              <Button
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setShowCreateChat(false);
-                  setPartnerEmail('');
-                }}
-              >
-                Cancel
-              </Button>
-            </div>
+      {/* CSV Upload Modal */}
+      {showCsvUpload && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-sidebar-bg rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-xl font-semibold text-text-primary mb-4">Import Chat History</h3>
+            <CsvUpload onUpload={handleCsvUpload} />
+            <button
+              onClick={() => setShowCsvUpload(false)}
+              className="w-full mt-4 px-4 py-2 bg-input-bg hover:bg-input-bg/80 text-text-primary rounded-lg transition"
+            >
+              Cancel
+            </button>
           </div>
         </div>
       )}
