@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 interface SignupFormData {
-  username: string;
+  name: string;
   email: string;
   password: string;
   confirmPassword: string;
@@ -15,12 +16,15 @@ interface SignupFormProps {
 
 const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) => {
   const [formData, setFormData] = useState<SignupFormData>({
-    username: '',
+    name: '',
     email: '',
     password: '',
     confirmPassword: '',
     partnerCode: ''
   });
+  const [apiError, setApiError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const { signup } = useAuth();
 
   const [errors, setErrors] = useState<Partial<SignupFormData>>({});
   const [showPassword, setShowPassword] = useState(false);
@@ -29,11 +33,11 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
   const validateForm = (): boolean => {
     const newErrors: Partial<SignupFormData> = {};
 
-    // Username validation
-    if (!formData.username.trim()) {
-      newErrors.username = 'Username is required';
-    } else if (formData.username.length < 3) {
-      newErrors.username = 'Username must be at least 3 characters';
+    // Name validation
+    if (!formData.name.trim()) {
+      newErrors.name = 'Name is required';
+    } else if (formData.name.length < 2) {
+      newErrors.name = 'Name must be at least 2 characters';
     }
 
     // Email validation
@@ -72,10 +76,22 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setApiError('');
+    
     if (validateForm()) {
-      onSubmit(formData);
+      setLoading(true);
+      try {
+        await signup(formData.name, formData.email, formData.password);
+        if (onSubmit) {
+          onSubmit(formData);
+        }
+      } catch (error: any) {
+        setApiError(error.message || 'Failed to create account');
+      } finally {
+        setLoading(false);
+      }
     }
   };
 
@@ -95,32 +111,39 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
         {/* Form Card */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-xl p-8 border border-pink-100">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Username Field */}
+            {/* Error Message */}
+            {apiError && (
+              <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                <p className="text-sm text-red-600">{apiError}</p>
+              </div>
+            )}
+
+            {/* Name Field */}
             <div>
-              <label htmlFor="username" className="block text-sm font-medium text-gray-700 mb-2">
+              <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
                 <span className="flex items-center">
                   <span className="mr-2">👤</span>
-                  Username
+                  Name
                 </span>
               </label>
               <input
                 type="text"
-                id="username"
-                name="username"
-                value={formData.username}
+                id="name"
+                name="name"
+                value={formData.name}
                 onChange={handleInputChange}
                 className={`w-full px-4 py-3 rounded-xl border transition-all duration-200 focus:ring-2 focus:ring-pink-300 focus:border-pink-400 outline-none ${
-                  errors.username 
+                  errors.name 
                     ? 'border-red-300 bg-red-50' 
                     : 'border-gray-200 bg-white hover:border-pink-300'
                 }`}
-                placeholder="Choose a lovely username"
-                disabled={isLoading}
+                placeholder="Enter your name"
+                disabled={loading || isLoading}
               />
-              {errors.username && (
+              {errors.name && (
                 <p className="mt-1 text-sm text-red-500 flex items-center">
                   <span className="mr-1">⚠️</span>
-                  {errors.username}
+                  {errors.name}
                 </p>
               )}
             </div>
@@ -145,7 +168,7 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
                     : 'border-gray-200 bg-white hover:border-pink-300'
                 }`}
                 placeholder="your.email@example.com"
-                disabled={isLoading}
+                disabled={loading || isLoading}
               />
               {errors.email && (
                 <p className="mt-1 text-sm text-red-500 flex items-center">
@@ -176,13 +199,13 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
                       : 'border-gray-200 bg-white hover:border-pink-300'
                   }`}
                   placeholder="Create a secure password"
-                  disabled={isLoading}
+                  disabled={loading || isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-pink-500 transition-colors"
-                  disabled={isLoading}
+                  disabled={loading || isLoading}
                 >
                   {showPassword ? '🙈' : '👁️'}
                 </button>
@@ -216,13 +239,13 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
                       : 'border-gray-200 bg-white hover:border-pink-300'
                   }`}
                   placeholder="Confirm your password"
-                  disabled={isLoading}
+                  disabled={loading || isLoading}
                 />
                 <button
                   type="button"
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-pink-500 transition-colors"
-                  disabled={isLoading}
+                  disabled={loading || isLoading}
                 >
                   {showConfirmPassword ? '🙈' : '👁️'}
                 </button>
@@ -251,7 +274,7 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
                 onChange={handleInputChange}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white hover:border-pink-300 focus:ring-2 focus:ring-pink-300 focus:border-pink-400 outline-none transition-all duration-200"
                 placeholder="Enter your partner's invite code"
-                disabled={isLoading}
+                disabled={loading || isLoading}
               />
               <p className="mt-1 text-xs text-gray-500">Connect with your partner instantly!</p>
             </div>
@@ -259,10 +282,10 @@ const SignupForm: React.FC<SignupFormProps> = ({ onSubmit, isLoading = false }) 
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isLoading}
+              disabled={loading || isLoading}
               className="w-full bg-gradient-to-r from-pink-400 to-rose-400 hover:from-pink-500 hover:to-rose-500 text-white font-semibold py-3 px-6 rounded-xl transition-all duration-200 transform hover:scale-[1.02] focus:ring-2 focus:ring-pink-300 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none shadow-lg"
             >
-              {isLoading ? (
+              {(loading || isLoading) ? (
                 <span className="flex items-center justify-center">
                   <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>

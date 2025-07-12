@@ -2,6 +2,10 @@ const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { validationResult } = require('express-validator');
+const { OAuth2Client } = require('google-auth-library');
+
+// Initialize Google OAuth client
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -18,52 +22,26 @@ exports.signup = async (req, res) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: errors.array()[0].msg
       });
     }
 
-    const {
-      email,
-      password,
-      username,
-      firstName,
-      lastName,
-      dateOfBirth,
-      location
-    } = req.body;
+    const { name, email, password } = req.body;
 
     // Check if user already exists
-    const existingUser = await User.findByEmailOrUsername(email);
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'User already exists with this email or username'
-      });
-    }
-
-    // Check if username is taken
-    const existingUsername = await User.findOne({ username });
-    if (existingUsername) {
-      return res.status(409).json({
-        success: false,
-        message: 'Username is already taken'
+        error: 'User already exists with this email'
       });
     }
 
     // Create new user
     const newUser = new User({
+      name,
       email: email.toLowerCase(),
-      password,
-      username,
-      profile: {
-        firstName,
-        lastName,
-        dateOfBirth: dateOfBirth ? new Date(dateOfBirth) : undefined,
-        location
-      },
-      verificationToken: crypto.randomBytes(32).toString('hex'),
-      isVerified: false
+      password
     });
 
     // Save user to database
@@ -72,15 +50,15 @@ exports.signup = async (req, res) => {
     // Generate JWT token
     const token = generateToken(newUser._id);
 
-    // Remove sensitive information
-    const userResponse = newUser.getPublicProfile();
-
+    // Return user data
     res.status(201).json({
       success: true,
-      message: 'User registered successfully! Please verify your email.',
-      data: {
-        user: userResponse,
-        token
+      token,
+      user: {
+        _id: newUser._id,
+        name: newUser.name,
+        email: newUser.email,
+        createdAt: newUser.createdAt
       }
     });
 
@@ -112,19 +90,18 @@ exports.login = async (req, res) => {
     if (!errors.isEmpty()) {
       return res.status(400).json({
         success: false,
-        message: 'Validation failed',
-        errors: errors.array()
+        error: errors.array()[0].msg
       });
     }
 
-    const { identifier, password } = req.body; // identifier can be email or username
+    const { email, password } = req.body;
 
-    // Find user by email or username
-    const user = await User.findByEmailOrUsername(identifier);
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        error: 'Invalid credentials'
       });
     }
 
@@ -133,34 +110,21 @@ exports.login = async (req, res) => {
     if (!isPasswordValid) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        error: 'Invalid credentials'
       });
     }
-
-    // Check if user is active
-    if (!user.isActive) {
-      return res.status(403).json({
-        success: false,
-        message: 'Account is deactivated. Please contact support.'
-      });
-    }
-
-    // Update last login
-    user.lastLogin = new Date();
-    await user.save();
 
     // Generate JWT token
     const token = generateToken(user._id);
 
-    // Remove sensitive information
-    const userResponse = user.getPublicProfile();
-
     res.status(200).json({
       success: true,
-      message: 'Login successful',
-      data: {
-        user: userResponse,
-        token
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt
       }
     });
 
@@ -177,7 +141,7 @@ exports.login = async (req, res) => {
 // Get Current User Profile
 exports.getProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.userId).select('-password');
+    const user = await User.findById(req.userId).select('-password');
     
     if (!user) {
       return res.status(404).json({
@@ -189,7 +153,12 @@ exports.getProfile = async (req, res) => {
     res.status(200).json({
       success: true,
       data: {
-        user: user.getPublicProfile()
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt
+        }
       }
     });
 
@@ -198,6 +167,40 @@ exports.getProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Server error fetching profile',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Get User By Email
+exports.getUserByEmail = async (req, res) => {
+  try {
+    const { email } = req.params;
+    
+    const user = await User.findOne({ email: email.toLowerCase() }).select('-password');
+    
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar
+      }
+    });
+
+  } catch (error) {
+    console.error('Get user by email error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error finding user',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -261,7 +264,12 @@ exports.updateProfile = async (req, res) => {
       success: true,
       message: 'Profile updated successfully',
       data: {
-        user: user.getPublicProfile()
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          createdAt: user.createdAt
+        }
       }
     });
 
@@ -385,6 +393,87 @@ exports.deleteAccount = async (req, res) => {
       success: false,
       message: 'Server error deleting account',
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// Google OAuth Login
+exports.googleLogin = async (req, res) => {
+  console.log('Google login attempt received');
+  try {
+    const { credential } = req.body;
+    console.log('Credential received:', credential ? 'Yes' : 'No');
+
+    if (!credential) {
+      return res.status(400).json({
+        success: false,
+        error: 'Google credential is required'
+      });
+    }
+
+    // Verify the Google token
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const payload = ticket.getPayload();
+    const { email, name, sub: googleId, picture } = payload;
+
+    // Check if user exists
+    let user = await User.findOne({ 
+      $or: [
+        { email: email.toLowerCase() },
+        { googleId }
+      ]
+    });
+
+    if (!user) {
+      // Create new user with Google account
+      user = new User({
+        name,
+        email: email.toLowerCase(),
+        googleId,
+        avatar: picture,
+        authProvider: 'google',
+        isEmailVerified: true // Google accounts are pre-verified
+      });
+
+      await user.save();
+    } else {
+      // Update existing user with Google info if needed
+      if (!user.googleId) {
+        user.googleId = googleId;
+        user.authProvider = 'google';
+        user.isEmailVerified = true;
+        if (!user.avatar && picture) {
+          user.avatar = picture;
+        }
+        await user.save();
+      }
+    }
+
+    // Generate JWT token
+    const token = generateToken(user._id);
+
+    res.status(200).json({
+      success: true,
+      token,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        createdAt: user.createdAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Google login error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to authenticate with Google',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 };

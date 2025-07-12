@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useAuth } from '@/context/AuthContext';
 
 interface LoginFormProps {
   onSubmit?: (data: { email: string; password: string }) => void;
@@ -12,6 +13,8 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSubmit }) => {
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [error, setError] = useState('');
+  const { login } = useAuth();
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -24,17 +27,16 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSubmit }) => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
     
     try {
-      // Simulate API call
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await login(formData.email, formData.password);
       
       if (onSubmit) {
         onSubmit(formData);
       }
-      
-      console.log('Login attempt:', formData);
-    } catch (error) {
+    } catch (error: any) {
+      setError(error.message || 'Failed to login. Please check your credentials.');
       console.error('Login error:', error);
     } finally {
       setIsLoading(false);
@@ -59,6 +61,13 @@ const LoginForm: React.FC<LoginFormProps> = ({ onSubmit }) => {
           Ready to continue your beautiful love story?
         </p>
       </div>
+
+      {/* Error Message */}
+      {error && (
+        <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
 
       {/* Login Form */}
       <form onSubmit={handleSubmit} className="space-y-6">

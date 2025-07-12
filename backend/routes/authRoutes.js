@@ -1,12 +1,16 @@
 const express = require('express');
 const { body } = require('express-validator');
 const authController = require('../controllers/authController');
-const authMiddleware = require('../middleware/authMiddleware');
+const authMiddleware = require('../middleware/auth');
 
 const router = express.Router();
 
 // Validation middleware for signup
 const signupValidation = [
+  body('name')
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Name must be between 2 and 50 characters'),
   body('email')
     .isEmail()
     .withMessage('Please provide a valid email address')
@@ -14,36 +18,13 @@ const signupValidation = [
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$/)
-    .withMessage('Password must contain at least one uppercase letter, one lowercase letter, and one number'),
-  body('username')
-    .isLength({ min: 3, max: 20 })
-    .withMessage('Username must be between 3 and 20 characters')
-    .matches(/^[a-zA-Z0-9_]+$/)
-    .withMessage('Username can only contain letters, numbers, and underscores'),
-  body('firstName')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('First name is required and must be less than 50 characters'),
-  body('lastName')
-    .trim()
-    .isLength({ min: 1, max: 50 })
-    .withMessage('Last name is required and must be less than 50 characters'),
-  body('dateOfBirth')
-    .optional()
-    .isISO8601()
-    .withMessage('Please provide a valid date of birth'),
-  body('location')
-    .optional()
-    .isLength({ max: 100 })
-    .withMessage('Location must be less than 100 characters')
 ];
 
 // Validation middleware for login
 const loginValidation = [
-  body('identifier')
-    .notEmpty()
-    .withMessage('Email or username is required'),
+  body('email')
+    .isEmail()
+    .withMessage('Please provide a valid email address'),
   body('password')
     .notEmpty()
     .withMessage('Password is required')
@@ -117,9 +98,15 @@ router.post('/signup', signupValidation, authController.signup);
 // POST /api/auth/login - Login user
 router.post('/login', loginValidation, authController.login);
 
+// POST /api/auth/google - Google OAuth login
+router.post('/google', authController.googleLogin);
+
 // Protected routes (authentication required)
 // GET /api/auth/profile - Get current user profile
 router.get('/profile', authMiddleware, authController.getProfile);
+
+// GET /api/auth/user-by-email/:email - Find user by email (protected)
+router.get('/user-by-email/:email', authMiddleware, authController.getUserByEmail);
 
 // PUT /api/auth/profile - Update user profile
 router.put('/profile', authMiddleware, updateProfileValidation, authController.updateProfile);
