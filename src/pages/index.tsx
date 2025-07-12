@@ -4,15 +4,17 @@ import { useAuth } from '@/context/AuthContext';
 
 const IndexPage: React.FC = () => {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    if (user) {
-      router.push('/chat');
-    } else {
-      router.push('/login');
+    if (!loading) {
+      if (user) {
+        router.push('/chat');
+      } else {
+        router.push('/login');
+      }
     }
-  }, [user, router]);
+  }, [user, loading, router]);
 
   return (
     <div className="min-h-screen bg-dark-bg flex items-center justify-center">
