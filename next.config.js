@@ -3,6 +3,8 @@ const nextConfig = {
   reactStrictMode: true,
   output: 'export',
   trailingSlash: true,
+  basePath: '/couple-chat-app',
+  assetPrefix: '/couple-chat-app',
   distDir: 'docs',
   async headers() {
     return [
