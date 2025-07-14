@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { api, User, AuthResponse } from '@/services/api';
 import { useRouter } from 'next/router';
+import socketService from '@/services/socketService';
 
 interface AuthContextType {
   user: User | null;
@@ -20,21 +21,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check for existing session on mount
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const storedUser = localStorage.getItem('user');
-    
-    if (token && storedUser) {
+    const checkAuthStatus = async () => {
       try {
-        const parsedUser = JSON.parse(storedUser);
-        setUser(parsedUser);
+        // Try to get current user from server (checks cookie)
+        const response = await api.auth.getCurrentUser();
+        if (response && response.success) {
+          setUser(response.user);
+          // Initialize socket connection if user is authenticated
+          socketService.connect();
+        }
       } catch (error) {
-        console.error('Error parsing stored user:', error);
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        console.error('Error checking auth status:', error);
+        // User not authenticated, that's okay
+      } finally {
+        setLoading(false);
       }
-    }
-    
-    setLoading(false);
+    };
+
+    checkAuthStatus();
   }, []);
 
   const login = async (email: string, password: string) => {
@@ -42,9 +46,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response: AuthResponse = await api.auth.login(email, password);
       
       if (response.success) {
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
         setUser(response.user);
+        // Initialize socket connection
+        socketService.connect();
         router.push('/chat');
       }
     } catch (error) {
@@ -58,9 +62,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const response: AuthResponse = await api.auth.signup(name, email, password);
       
       if (response.success) {
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
         setUser(response.user);
+        // Initialize socket connection
+        socketService.connect();
         router.push('/chat');
       }
     } catch (error) {
@@ -69,15 +73,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const logout = () => {
-    api.auth.logout();
-    setUser(null);
-    router.push('/');
+  const logout = async () => {
+    try {
+      await api.auth.logout();
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      // Disconnect socket
+      socketService.disconnect();
+      setUser(null);
+      router.push('/');
+    }
   };
 
   const updateUser = (updatedUser: User) => {
     setUser(updatedUser);
-    localStorage.setItem('user', JSON.stringify(updatedUser));
   };
 
   const value = {

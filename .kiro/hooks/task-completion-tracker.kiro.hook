@@ -1,0 +1,21 @@
+{
+  "enabled": true,
+  "name": "Task Completion Tracker",
+  "description": "Monitors for task completion indicators and automatically commits changes, updates README, and maintains a task summary log",
+  "version": "1",
+  "when": {
+    "type": "userTriggered",
+    "patterns": [
+      "src/**/*.tsx",
+      "src/**/*.ts",
+      "backend/**/*.js",
+      "README.md",
+      "package.json",
+      "backend/package.json"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "A task appears to have been completed based on file changes. Please:\n\n1. Review the recent changes to determine what task was completed\n2. Commit the changes with a descriptive commit message\n3. Update the README.md file to reflect any new features or changes\n4. Create or update a TASK_SUMMARY.md file with:\n   - Date and time of completion\n   - Brief description of what was accomplished\n   - Files that were modified\n   - Any notable implementation details\n\nUse git commands to commit the changes and ensure all documentation is current."
+  }
+}

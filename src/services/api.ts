@@ -12,7 +12,6 @@ export interface User {
 
 export interface AuthResponse {
   success: boolean;
-  token: string;
   user: User;
 }
 
@@ -71,22 +70,21 @@ export interface ChatStats {
   sentimentStats: Array<{ _id: string; count: number }>;
 }
 
-// Helper function to get auth headers
+// Helper function to get auth headers (no longer needed for cookie auth)
 const getAuthHeaders = (): HeadersInit => {
-  const token = localStorage.getItem('token');
   return {
     'Content-Type': 'application/json',
-    ...(token && { Authorization: `Bearer ${token}` })
   };
 };
 
-// Helper function for API calls
+// Helper function for API calls with cookie support
 async function apiCall<T>(
   endpoint: string,
   options: RequestInit = {}
 ): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
     ...options,
+    credentials: 'include', // Include cookies
     headers: {
       ...getAuthHeaders(),
       ...options.headers
@@ -125,13 +123,14 @@ export const authAPI = {
   },
 
   logout: () => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('user');
+    // No need to clear localStorage anymore since we're using cookies
+    // The server will clear the httpOnly cookie
   },
 
   getCurrentUser: (): User | null => {
-    const userStr = localStorage.getItem('user');
-    return userStr ? JSON.parse(userStr) : null;
+    // For cookie auth, we need to make an API call to get current user
+    // This is handled by the AuthContext
+    return null;
   },
 
   getUserByEmail: async (email: string): Promise<User | null> => {

@@ -2,8 +2,12 @@ const express = require('express');
 const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const authMiddleware = require('../middleware/auth');
+const { authLimiter, passwordResetLimiter, emailVerificationLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
+
+// Apply auth rate limiter to all auth routes
+router.use(authLimiter);
 
 // Validation middleware for signup
 const signupValidation = [
@@ -12,9 +16,10 @@ const signupValidation = [
     .isLength({ min: 2, max: 50 })
     .withMessage('Name must be between 2 and 50 characters'),
   body('email')
+    .trim()
+    .normalizeEmail()
     .isEmail()
-    .withMessage('Please provide a valid email address')
-    .normalizeEmail(),
+    .withMessage('Please provide a valid email address'),
   body('password')
     .isLength({ min: 6 })
     .withMessage('Password must be at least 6 characters long')
@@ -23,6 +28,8 @@ const signupValidation = [
 // Validation middleware for login
 const loginValidation = [
   body('email')
+    .trim()
+    .normalizeEmail()
     .isEmail()
     .withMessage('Please provide a valid email address'),
   body('password')
@@ -87,8 +94,37 @@ const changePasswordValidation = [
 // Validation middleware for account deletion
 const deleteAccountValidation = [
   body('password')
+    .optional()
+    .isLength({ min: 6 })
+    .withMessage('Password must be at least 6 characters long')
+];
+
+// Validation middleware for password reset request
+const requestPasswordResetValidation = [
+  body('email')
+    .trim()
+    .normalizeEmail()
+    .isEmail()
+    .withMessage('Please provide a valid email address')
+];
+
+// Validation middleware for password reset
+const resetPasswordValidation = [
+  body('token')
     .notEmpty()
-    .withMessage('Password is required to delete account')
+    .withMessage('Reset token is required'),
+  body('newPassword')
+    .isLength({ min: 6 })
+    .withMessage('New password must be at least 6 characters long')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).*$/)
+    .withMessage('New password must contain at least one uppercase letter, one lowercase letter, and one number')
+];
+
+// Validation middleware for email verification
+const verifyEmailValidation = [
+  body('token')
+    .notEmpty()
+    .withMessage('Verification token is required')
 ];
 
 // Public routes (no authentication required)
@@ -100,6 +136,15 @@ router.post('/login', loginValidation, authController.login);
 
 // POST /api/auth/google - Google OAuth login
 router.post('/google', authController.googleLogin);
+
+// POST /api/auth/request-password-reset - Request password reset
+router.post('/request-password-reset', passwordResetLimiter, requestPasswordResetValidation, authController.requestPasswordReset);
+
+// POST /api/auth/reset-password - Reset password with token
+router.post('/reset-password', passwordResetLimiter, resetPasswordValidation, authController.resetPassword);
+
+// POST /api/auth/verify-email - Verify email with token
+router.post('/verify-email', emailVerificationLimiter, verifyEmailValidation, authController.verifyEmail);
 
 // Protected routes (authentication required)
 // GET /api/auth/profile - Get current user profile
@@ -116,6 +161,9 @@ router.put('/change-password', authMiddleware, changePasswordValidation, authCon
 
 // POST /api/auth/logout - Logout user (optional, mainly for logging purposes)
 router.post('/logout', authMiddleware, authController.logout);
+
+// POST /api/auth/resend-verification - Resend email verification
+router.post('/resend-verification', authMiddleware, emailVerificationLimiter, authController.resendEmailVerification);
 
 // DELETE /api/auth/account - Delete user account
 router.delete('/account', authMiddleware, deleteAccountValidation, authController.deleteAccount);

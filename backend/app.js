@@ -3,6 +3,9 @@ const cors = require('cors');
 const dotenv = require('dotenv');
 const mongoose = require('mongoose');
 const path = require('path');
+const helmet = require('helmet');
+const cookieParser = require('cookie-parser');
+const { generalLimiter } = require('./middleware/rateLimiter');
 
 // Load environment variables
 dotenv.config();
@@ -11,6 +14,25 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
+// Security middleware
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
+}));
+
+// Rate limiting
+app.use(generalLimiter);
+
+// Cookie parser
+app.use(cookieParser());
+
 /**
  * ---------------------------------------------------------------------------
  * CORS configuration
@@ -127,10 +149,17 @@ app.use('*', (req, res) => {
 });
 
 // Start server
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`💕 Couple Chat Server running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
+
+// Initialize Socket.io
+const SocketManager = require('./services/socketManager');
+const socketManager = new SocketManager(server);
+
+// Make socket manager available to other modules
+app.set('socketManager', socketManager);
 
 module.exports = app;
 
