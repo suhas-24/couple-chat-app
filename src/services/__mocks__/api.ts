@@ -1,0 +1,37 @@
+export const api = {
+  analytics: {
+    getChatStats: jest.fn(),
+    getWordCloud: jest.fn(),
+    getTimeline: jest.fn(),
+    getMilestones: jest.fn(),
+    invalidateCache: jest.fn(),
+    getCacheStats: jest.fn(),
+  },
+  auth: {
+    signup: jest.fn(),
+    login: jest.fn(),
+    googleLogin: jest.fn(),
+    logout: jest.fn(),
+    getCurrentUser: jest.fn(),
+    getUserByEmail: jest.fn(),
+  },
+  chat: {
+    createOrGetChat: jest.fn(),
+    getUserChats: jest.fn(),
+    getMessages: jest.fn(),
+    sendMessage: jest.fn(),
+    addReaction: jest.fn(),
+    uploadCSV: jest.fn(),
+    updateChatMetadata: jest.fn(),
+  },
+  ai: {
+    getRelationshipInsights: jest.fn(),
+    getConversationStarters: jest.fn(),
+    getEmojiInsights: jest.fn(),
+    getDateIdeas: jest.fn(),
+    getMemorySummary: jest.fn(),
+    askAboutChatHistory: jest.fn(),
+    getWordFrequency: jest.fn(),
+    getMessagesByDate: jest.fn(),
+  },
+};

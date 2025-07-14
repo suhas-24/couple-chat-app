@@ -232,22 +232,46 @@ export const chatAPI = {
 
 // Analytics API
 export const analyticsAPI = {
-  getChatStats: async (chatId: string): Promise<{ success: boolean; stats: ChatStats }> => {
-    return apiCall(`/analytics/${chatId}/stats`);
+  getChatStats: async (
+    chatId: string, 
+    params: {
+      startDate?: string;
+      endDate?: string;
+      includeWordAnalysis?: string;
+      includeActivityPatterns?: string;
+      includeMilestones?: string;
+    } = {}
+  ): Promise<{ 
+    success: boolean; 
+    data: any;
+    cached?: boolean;
+  }> => {
+    const queryParams = new URLSearchParams(params as any).toString();
+    return apiCall(`/analytics/${chatId}/stats?${queryParams}`);
   },
 
   getWordCloud: async (
     chatId: string,
-    limit: number = 50
+    params: {
+      limit?: number;
+      startDate?: string;
+      endDate?: string;
+    } = {}
   ): Promise<{
     success: boolean;
-    wordCloud: {
+    data: {
       topWords: Array<{ word: string; count: number }>;
       totalUniqueWords: number;
       topWordsBySender: Record<string, Array<{ word: string; count: number }>>;
+      emojiUsage: Record<string, number>;
+      topPhrases: Array<{ phrase: string; count: number }>;
+      languageDistribution: Record<string, number>;
+      sentiment: Record<string, number>;
     };
+    cached?: boolean;
   }> => {
-    return apiCall(`/analytics/${chatId}/wordcloud?limit=${limit}`);
+    const queryParams = new URLSearchParams(params as any).toString();
+    return apiCall(`/analytics/${chatId}/wordcloud?${queryParams}`);
   },
 
   getTimeline: async (
@@ -259,20 +283,17 @@ export const analyticsAPI = {
     } = {}
   ): Promise<{
     success: boolean;
-    timeline: {
-      data: Array<{
-        _id: string;
-        totalMessages: number;
-        messagesBySender: Array<{
-          sender: string;
-          count: number;
-          avgLength: number;
-        }>;
-      }>;
-      specialMoments: Array<{ _id: string; count: number }>;
+    data: {
+      data: Array<{ date: string; messageCount: number }>;
+      hourlyActivity: number[];
+      dailyActivity: Record<string, number>;
+      monthlyActivity: Record<string, number>;
+      mostActiveHour: number;
+      mostActiveDay: string;
       groupBy: string;
       dateRange: { start: string; end: string };
     };
+    cached?: boolean;
   }> => {
     const queryParams = new URLSearchParams(params as any).toString();
     return apiCall(`/analytics/${chatId}/timeline?${queryParams}`);
@@ -282,16 +303,40 @@ export const analyticsAPI = {
     chatId: string
   ): Promise<{
     success: boolean;
-    milestones: Array<{
-      type: string;
-      date: string;
-      description: string;
-      count?: number;
-      streakDays?: number;
-    }>;
-    metadata: Chat['metadata'];
+    data: {
+      milestones: Array<{
+        type: string;
+        date: string;
+        description: string;
+        significance: 'low' | 'medium' | 'high';
+        messageCount?: number;
+        participants?: string[];
+      }>;
+      metadata: Chat['metadata'];
+      totalMessages: number;
+      dateRange: { start: string; end: string };
+    };
+    cached?: boolean;
   }> => {
     return apiCall(`/analytics/${chatId}/milestones`);
+  },
+
+  invalidateCache: async (chatId: string): Promise<{ success: boolean; message: string }> => {
+    return apiCall(`/analytics/${chatId}/invalidate-cache`, {
+      method: 'POST'
+    });
+  },
+
+  getCacheStats: async (): Promise<{
+    success: boolean;
+    cacheStats: {
+      totalEntries: number;
+      validEntries: number;
+      expiredEntries: number;
+      memoryUsage: number;
+    };
+  }> => {
+    return apiCall('/analytics/cache-stats');
   },
 
   getEmojiStats: async (

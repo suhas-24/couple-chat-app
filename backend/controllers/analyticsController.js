@@ -1,11 +1,14 @@
 const Message = require('../models/Message');
 const Chat = require('../models/Chat');
 const mongoose = require('mongoose');
+const analyticsService = require('../services/analyticsService');
+const cacheService = require('../services/cacheService');
 
-// Get overall chat statistics
+// Get comprehensive chat analytics
 exports.getChatStats = async (req, res) => {
   try {
     const { chatId } = req.params;
+    const { startDate, endDate, includeWordAnalysis = 'true', includeActivityPatterns = 'true', includeMilestones = 'true' } = req.query;
     const userId = req.userId;
 
     // Verify user has access to this chat
@@ -18,156 +21,63 @@ exports.getChatStats = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to view analytics for this chat' });
     }
 
-    // Get basic message statistics
-    const totalMessages = await Message.countDocuments({
-      chat: chatId,
-      isDeleted: false
+    // Generate cache key
+    const cacheKey = cacheService.generateAnalyticsKey(chatId, {
+      startDate,
+      endDate,
+      includeWordAnalysis: includeWordAnalysis === 'true',
+      includeActivityPatterns: includeActivityPatterns === 'true',
+      includeMilestones: includeMilestones === 'true'
     });
 
-    // Messages by sender
-    const messagesBySender = await Message.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-          isDeleted: false
-        }
-      },
-      {
-        $group: {
-          _id: '$sender',
-          count: { $sum: 1 },
-          firstMessage: { $min: '$createdAt' },
-          lastMessage: { $max: '$createdAt' }
-        }
-      },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'senderInfo'
-        }
-      },
-      {
-        $unwind: '$senderInfo'
-      },
-      {
-        $project: {
-          sender: {
-            id: '$_id',
-            name: '$senderInfo.name'
-          },
-          count: 1,
-          firstMessage: 1,
-          lastMessage: 1
-        }
-      }
-    ]);
+    // Try to get from cache first
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      return res.status(200).json({
+        success: true,
+        data: cachedResult,
+        cached: true
+      });
+    }
 
-    // Message types distribution
-    const messageTypes = await Message.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-          isDeleted: false
-        }
-      },
-      {
-        $group: {
-          _id: '$content.type',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    // Generate analytics using the service
+    const analyticsResult = await analyticsService.generateChatAnalytics(chatId, {
+      startDate,
+      endDate,
+      includeWordAnalysis: includeWordAnalysis === 'true',
+      includeActivityPatterns: includeActivityPatterns === 'true',
+      includeMilestones: includeMilestones === 'true'
+    });
 
-    // Daily message count for the last 30 days
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    if (!analyticsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: analyticsResult.error
+      });
+    }
 
-    const dailyMessages = await Message.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-          createdAt: { $gte: thirtyDaysAgo },
-          isDeleted: false
-        }
-      },
-      {
-        $group: {
-          _id: {
-            $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { _id: 1 }
-      }
-    ]);
+    // Add chat info to the result
+    analyticsResult.data.chatInfo = {
+      name: chat.chatName,
+      participants: chat.participants,
+      createdAt: chat.createdAt,
+      lastMessageAt: chat.lastMessageAt
+    };
 
-    // Average messages per day
-    const daysSinceStart = Math.ceil(
-      (new Date() - new Date(chat.createdAt)) / (1000 * 60 * 60 * 24)
-    );
-    const avgMessagesPerDay = totalMessages / daysSinceStart;
-
-    // Most active hours
-    const hourlyActivity = await Message.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-          isDeleted: false
-        }
-      },
-      {
-        $group: {
-          _id: { $hour: '$createdAt' }, // hour of the day (0-23)
-          count: { $sum: 1 }
-        }
-      },
-      {
-        $sort: { _id: 1 }
-      }
-    ]);
-
-    // Sentiment distribution
-    const sentimentStats = await Message.aggregate([
-      {
-        $match: {
-          chat: new mongoose.Types.ObjectId(chatId),
-          isDeleted: false,
-          'metadata.sentiment': { $exists: true }
-        }
-      },
-      {
-        $group: {
-          _id: '$metadata.sentiment',
-          count: { $sum: 1 }
-        }
-      }
-    ]);
+    // Cache the result for 30 minutes
+    cacheService.set(cacheKey, analyticsResult.data, 30 * 60 * 1000);
 
     res.status(200).json({
       success: true,
-      stats: {
-        totalMessages,
-        messagesBySender,
-        messageTypes,
-        dailyMessages,
-        avgMessagesPerDay: Math.round(avgMessagesPerDay * 10) / 10,
-        hourlyActivity,
-        sentimentStats,
-        chatInfo: {
-          name: chat.chatName,
-          participants: chat.participants,
-          createdAt: chat.createdAt,
-          lastMessageAt: chat.lastMessageAt
-        }
-      }
+      data: analyticsResult.data,
+      cached: false
     });
   } catch (error) {
-    console.error('Error getting chat stats:', error);
-    res.status(500).json({ error: 'Failed to get chat statistics' });
+    console.error('Error getting chat analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate chat analytics'
+    });
   }
 };
 
@@ -175,7 +85,7 @@ exports.getChatStats = async (req, res) => {
 exports.getWordCloud = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { limit = 50 } = req.query;
+    const { limit = 50, startDate, endDate } = req.query;
     const userId = req.userId;
 
     // Verify user has access
@@ -188,85 +98,70 @@ exports.getWordCloud = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    // Get all text messages
-    const messages = await Message.find({
-      chat: chatId,
-      'content.type': 'text',
-      isDeleted: false
-    }).select('content.text sender');
-
-    // Common words to exclude
-    const stopWords = new Set([
-      'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have',
-      'i', 'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you',
-      'do', 'at', 'this', 'but', 'his', 'by', 'from', 'they',
-      'we', 'say', 'her', 'she', 'or', 'an', 'will', 'my', 'one',
-      'all', 'would', 'there', 'their', 'what', 'so', 'up', 'out',
-      'if', 'about', 'who', 'get', 'which', 'go', 'me', 'when',
-      'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know',
-      'take', 'people', 'into', 'year', 'your', 'good', 'some',
-      'could', 'them', 'see', 'other', 'than', 'then', 'now',
-      'look', 'only', 'come', 'its', 'over', 'think', 'also',
-      'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first',
-      'well', 'way', 'even', 'new', 'want', 'because', 'any',
-      'these', 'give', 'day', 'most', 'us', 'is', 'was', 'are',
-      'been', 'has', 'had', 'were', 'said', 'did', 'going', 'am',
-      'ok', 'okay', 'yeah', 'yes', 'no'
-    ]);
-
-    // Count word frequencies
-    const wordCount = {};
-    const wordBySender = {};
-
-    messages.forEach(msg => {
-      const words = msg.content.text
-        .toLowerCase()
-        .replace(/[^\w\s]/g, '') // Remove punctuation
-        .split(/\s+/)
-        .filter(word => word.length > 2 && !stopWords.has(word));
-
-      words.forEach(word => {
-        wordCount[word] = (wordCount[word] || 0) + 1;
-        
-        // Track by sender
-        const senderId = msg.sender.toString();
-        if (!wordBySender[senderId]) {
-          wordBySender[senderId] = {};
-        }
-        wordBySender[senderId][word] = (wordBySender[senderId][word] || 0) + 1;
-      });
+    // Generate cache key
+    const cacheKey = cacheService.generateWordFrequencyKey(chatId, {
+      startDate,
+      endDate,
+      limit: parseInt(limit)
     });
 
-    // Sort and limit words
-    const sortedWords = Object.entries(wordCount)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, limit)
-      .map(([word, count]) => ({ word, count }));
-
-    // Get top words per sender
-    const topWordsBySender = {};
-    for (const [senderId, words] of Object.entries(wordBySender)) {
-      topWordsBySender[senderId] = Object.entries(words)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 10)
-        .map(([word, count]) => ({ word, count }));
+    // Try to get from cache first
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      return res.status(200).json({
+        success: true,
+        data: cachedResult,
+        cached: true
+      });
     }
+
+    // Generate analytics to get word analysis
+    const analyticsResult = await analyticsService.generateChatAnalytics(chatId, {
+      startDate,
+      endDate,
+      includeWordAnalysis: true,
+      includeActivityPatterns: false,
+      includeMilestones: false
+    });
+
+    if (!analyticsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: analyticsResult.error
+      });
+    }
+
+    const wordAnalysis = analyticsResult.data.wordAnalysis;
+
+    // Format response to match expected structure
+    const wordCloudData = {
+      topWords: wordAnalysis.mostUsedWords.slice(0, parseInt(limit)),
+      totalUniqueWords: wordAnalysis.uniqueWords,
+      topWordsBySender: wordAnalysis.wordsByUser,
+      emojiUsage: wordAnalysis.emojiUsage,
+      topPhrases: wordAnalysis.topPhrases,
+      languageDistribution: wordAnalysis.languageDistribution,
+      sentiment: wordAnalysis.sentiment
+    };
+
+    // Cache the result for 20 minutes
+    cacheService.set(cacheKey, wordCloudData, 20 * 60 * 1000);
 
     res.status(200).json({
       success: true,
-      wordCloud: {
-        topWords: sortedWords,
-        totalUniqueWords: Object.keys(wordCount).length,
-        topWordsBySender
-      }
+      data: wordCloudData,
+      cached: false
     });
   } catch (error) {
     console.error('Error generating word cloud:', error);
-    res.status(500).json({ error: 'Failed to generate word cloud' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to generate word cloud'
+    });
   }
 };
 
-// Get message timeline
+// Get message timeline and activity patterns
 exports.getMessageTimeline = async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -283,90 +178,70 @@ exports.getMessageTimeline = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    // Build date filter
-    const dateFilter = { chat: new mongoose.Types.ObjectId(chatId), isDeleted: false };
-    if (startDate) dateFilter.createdAt = { $gte: new Date(startDate) };
-    if (endDate) {
-      dateFilter.createdAt = dateFilter.createdAt || {};
-      dateFilter.createdAt.$lte = new Date(endDate);
+    // Generate cache key
+    const cacheKey = cacheService.generateActivityKey(chatId, {
+      startDate,
+      endDate,
+      type: groupBy
+    });
+
+    // Try to get from cache first
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      return res.status(200).json({
+        success: true,
+        data: cachedResult,
+        cached: true
+      });
     }
 
-    // Determine grouping format
-    let groupFormat;
-    switch (groupBy) {
-      case 'hour':
-        groupFormat = '%Y-%m-%d %H:00';
-        break;
-      case 'day':
-        groupFormat = '%Y-%m-%d';
-        break;
-      case 'week':
-        groupFormat = '%Y-W%V';
-        break;
-      case 'month':
-        groupFormat = '%Y-%m';
-        break;
-      default:
-        groupFormat = '%Y-%m-%d';
+    // Generate analytics to get activity patterns
+    const analyticsResult = await analyticsService.generateChatAnalytics(chatId, {
+      startDate,
+      endDate,
+      includeWordAnalysis: false,
+      includeActivityPatterns: true,
+      includeMilestones: false
+    });
+
+    if (!analyticsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: analyticsResult.error
+      });
     }
 
-    // Get timeline data
-    const timeline = await Message.aggregate([
-      { $match: dateFilter },
-      {
-        $group: {
-          _id: {
-            date: { $dateToString: { format: groupFormat, date: '$createdAt' } },
-            sender: '$sender'
-          },
-          count: { $sum: 1 },
-          avgLength: { $avg: { $strLenCP: '$content.text' } }
-        }
-      },
-      {
-        $group: {
-          _id: '$_id.date',
-          totalMessages: { $sum: '$count' },
-          messagesBySender: {
-            $push: {
-              sender: '$_id.sender',
-              count: '$count',
-              avgLength: { $round: ['$avgLength', 0] }
-            }
-          }
-        }
-      },
-      { $sort: { _id: 1 } }
-    ]);
+    const activityPatterns = analyticsResult.data.activityPatterns;
 
-    // Get special moments (high activity days)
-    const specialMoments = await Message.aggregate([
-      { $match: dateFilter },
-      {
-        $group: {
-          _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 10 }
-    ]);
+    // Format timeline data based on groupBy parameter
+    const timelineData = {
+      data: activityPatterns.activityTrends,
+      hourlyActivity: activityPatterns.hourlyActivity,
+      dailyActivity: activityPatterns.dailyActivity,
+      monthlyActivity: activityPatterns.monthlyActivity,
+      mostActiveHour: activityPatterns.mostActiveHour,
+      mostActiveDay: activityPatterns.mostActiveDay,
+      groupBy,
+      dateRange: {
+        start: startDate || chat.createdAt,
+        end: endDate || new Date()
+      }
+    };
+
+    // Cache the result for 15 minutes
+    cacheService.set(cacheKey, timelineData, 15 * 60 * 1000);
 
     res.status(200).json({
       success: true,
-      timeline: {
-        data: timeline,
-        specialMoments,
-        groupBy,
-        dateRange: {
-          start: startDate || chat.createdAt,
-          end: endDate || new Date()
-        }
-      }
+      data: timelineData,
+      cached: false
     });
   } catch (error) {
     console.error('Error getting timeline:', error);
-    res.status(500).json({ error: 'Failed to get message timeline' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get message timeline'
+    });
   }
 };
 
@@ -386,92 +261,54 @@ exports.getRelationshipMilestones = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized' });
     }
 
-    const milestones = [];
+    // Generate cache key
+    const cacheKey = cacheService.generateMilestonesKey(chatId);
 
-    // First message
-    const firstMessage = await Message.findOne({
-      chat: chatId,
-      isDeleted: false
-    }).sort('createdAt');
-
-    if (firstMessage) {
-      milestones.push({
-        type: 'first_message',
-        date: firstMessage.createdAt,
-        description: 'Your first message together 💕'
+    // Try to get from cache first
+    const cachedResult = cacheService.get(cacheKey);
+    if (cachedResult) {
+      return res.status(200).json({
+        success: true,
+        data: cachedResult,
+        cached: true
       });
     }
 
-    // Message count milestones
-    const messageCounts = [100, 500, 1000, 5000, 10000];
-    for (const count of messageCounts) {
-      const milestone = await Message.findOne({
-        chat: chatId,
-        isDeleted: false
-      })
-      .sort('createdAt')
-      .skip(count - 1);
+    // Generate analytics to get milestones
+    const analyticsResult = await analyticsService.generateChatAnalytics(chatId, {
+      includeWordAnalysis: false,
+      includeActivityPatterns: false,
+      includeMilestones: true
+    });
 
-      if (milestone) {
-        milestones.push({
-          type: 'message_count',
-          date: milestone.createdAt,
-          description: `${count.toLocaleString()} messages exchanged! 🎉`,
-          count
-        });
-      }
-    }
-
-    // Longest conversation streak
-    const messages = await Message.find({
-      chat: chatId,
-      isDeleted: false
-    })
-    .select('createdAt')
-    .sort('createdAt');
-
-    let currentStreak = 1;
-    let longestStreak = 1;
-    let streakStart = messages[0]?.createdAt;
-    let longestStreakStart = streakStart;
-
-    for (let i = 1; i < messages.length; i++) {
-      const dayDiff = Math.floor(
-        (messages[i].createdAt - messages[i-1].createdAt) / (1000 * 60 * 60 * 24)
-      );
-
-      if (dayDiff <= 1) {
-        currentStreak++;
-        if (currentStreak > longestStreak) {
-          longestStreak = currentStreak;
-          longestStreakStart = streakStart;
-        }
-      } else {
-        currentStreak = 1;
-        streakStart = messages[i].createdAt;
-      }
-    }
-
-    if (longestStreak > 7) {
-      milestones.push({
-        type: 'conversation_streak',
-        date: longestStreakStart,
-        description: `${longestStreak} day conversation streak! 🔥`,
-        streakDays: longestStreak
+    if (!analyticsResult.success) {
+      return res.status(500).json({
+        success: false,
+        error: analyticsResult.error
       });
     }
 
-    // Sort milestones by date
-    milestones.sort((a, b) => a.date - b.date);
+    const milestonesData = {
+      milestones: analyticsResult.data.milestones,
+      metadata: chat.metadata,
+      totalMessages: analyticsResult.data.totalMessages,
+      dateRange: analyticsResult.data.dateRange
+    };
+
+    // Cache the result for 60 minutes (milestones don't change frequently)
+    cacheService.set(cacheKey, milestonesData, 60 * 60 * 1000);
 
     res.status(200).json({
       success: true,
-      milestones,
-      metadata: chat.metadata
+      data: milestonesData,
+      cached: false
     });
   } catch (error) {
     console.error('Error getting milestones:', error);
-    res.status(500).json({ error: 'Failed to get relationship milestones' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get relationship milestones'
+    });
   }
 };
 
@@ -511,7 +348,7 @@ exports.getEmojiStats = async (req, res) => {
 
       emojis.forEach(emoji => {
         emojiCount[emoji] = (emojiCount[emoji] || 0) + 1;
-        
+
         if (!emojiBySender[senderId]) {
           emojiBySender[senderId] = {};
         }
@@ -548,5 +385,54 @@ exports.getEmojiStats = async (req, res) => {
   } catch (error) {
     console.error('Error getting emoji stats:', error);
     res.status(500).json({ error: 'Failed to get emoji statistics' });
+  }
+};
+// Invalidate analytics cache for a chat (called when new messages are added)
+exports.invalidateAnalyticsCache = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId;
+
+    // Verify user has access
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: userId
+    });
+
+    if (!chat) {
+      return res.status(403).json({ error: 'Not authorized' });
+    }
+
+    // Invalidate all analytics cache for this chat
+    cacheService.invalidateAnalyticsCache(chatId);
+
+    res.status(200).json({
+      success: true,
+      message: 'Analytics cache invalidated successfully'
+    });
+  } catch (error) {
+    console.error('Error invalidating analytics cache:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to invalidate analytics cache'
+    });
+  }
+};
+
+// Get cache statistics (for debugging/monitoring)
+exports.getCacheStats = async (req, res) => {
+  try {
+    const stats = cacheService.getStats();
+
+    res.status(200).json({
+      success: true,
+      cacheStats: stats
+    });
+  } catch (error) {
+    console.error('Error getting cache stats:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to get cache statistics'
+    });
   }
 };

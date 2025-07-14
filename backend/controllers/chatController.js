@@ -3,6 +3,8 @@ const Message = require('../models/Message');
 const User = require('../models/User');
 // Context-aware AI service
 const { processIncomingMessage } = require('../services/contextAwareAI');
+const csvService = require('../services/csvService');
+const batchProcessor = require('../services/batchProcessor');
 const csv = require('csv-parser');
 const fs = require('fs');
 const path = require('path');
@@ -210,14 +212,14 @@ exports.getChatMessages = async (req, res) => {
   }
 };
 
-// Upload and parse CSV chat history
+// Upload and parse CSV chat history with enhanced processing and rollback support
 exports.uploadCsvChat = async (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { chatId } = req.body;
+    const { chatId, format = 'generic', enableRollback = true } = req.body;
     const userId = req.userId;
 
     // Verify user is participant
@@ -230,153 +232,146 @@ exports.uploadCsvChat = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to upload to this chat' });
     }
 
-    const messages = [];
-    const stats = {
-      totalMessages: 0,
-      dateRange: { start: null, end: null },
-      senderCounts: {}
+    // Process CSV file with enhanced service
+    const processingOptions = {
+      format,
+      batchSize: 1000,
+      encoding: req.body.encoding || 'utf8'
     };
 
-    // Parse CSV file with the new format: date,timestamp,sender,message,translated_message
-    const results = await new Promise((resolve, reject) => {
-      const parsedMessages = [];
-      
-      fs.createReadStream(req.file.path)
-        .pipe(csv())
-        .on('data', (row) => {
-          // Check if we have the required columns
-          if (row.date && row.timestamp && row.sender && (row.message || row.translated_message)) {
-            // Parse date and time
-            // Format: 07/04/25,7:52 am
-            const dateParts = row.date.split('/');
-            const timeParts = row.timestamp.split(' ');
-            
-            // Handle 2-digit year (25 -> 2025)
-            const year = dateParts[2].length === 2 ? `20${dateParts[2]}` : dateParts[2];
-            
-            // Parse time components
-            let hours = parseInt(timeParts[0].split(':')[0]);
-            const minutes = parseInt(timeParts[0].split(':')[1]);
-            
-            // Handle AM/PM
-            if (timeParts[1].toLowerCase() === 'pm' && hours < 12) {
-              hours += 12;
-            } else if (timeParts[1].toLowerCase() === 'am' && hours === 12) {
-              hours = 0;
-            }
-            
-            // Create date object
-            const messageDate = new Date(
-              parseInt(year),
-              parseInt(dateParts[0]) - 1, // Month is 0-indexed
-              parseInt(dateParts[1]),
-              hours,
-              minutes
-            );
-            
-            // Use translated_message if available, otherwise use message
-            const messageText = row.translated_message && row.translated_message.trim() !== '' 
-              ? row.translated_message 
-              : row.message;
-            
-            parsedMessages.push({
-              timestamp: messageDate,
-              senderName: row.sender,
-              text: messageText,
-              originalText: row.message,
-              wasTranslated: row.translated_message && row.translated_message !== row.message
-            });
+    // Process CSV with progress tracking
+    const csvResult = await csvService.processCSVFile(
+      req.file.path,
+      processingOptions,
+      (progress) => {
+        // Progress callback - could be used for real-time updates via WebSocket
+        console.log(`CSV Processing: ${progress.percentage}% (${progress.processed}/${progress.total})`);
+      }
+    );
 
-            // Update stats
-            stats.totalMessages++;
-            stats.senderCounts[row.sender] = (stats.senderCounts[row.sender] || 0) + 1;
-            
-            if (!stats.dateRange.start || messageDate < stats.dateRange.start) {
-              stats.dateRange.start = messageDate;
-            }
-            if (!stats.dateRange.end || messageDate > stats.dateRange.end) {
-              stats.dateRange.end = messageDate;
-            }
-          }
-        })
-        .on('end', () => resolve(parsedMessages))
-        .on('error', reject);
-    });
+    if (!csvResult.success) {
+      // Clean up uploaded file
+      if (req.cleanupUploadedFile) {
+        await req.cleanupUploadedFile();
+      } else {
+        fs.unlinkSync(req.file.path);
+      }
+      return res.status(400).json({
+        error: 'CSV processing failed',
+        details: csvResult.errors
+      });
+    }
 
     // Map sender names to user IDs
     const participants = await User.find({ _id: { $in: chat.participants } });
     const senderMap = {};
     
-    // Simple mapping - you might want to make this more sophisticated
+    // Enhanced sender mapping
     participants.forEach(user => {
-      Object.keys(stats.senderCounts).forEach(senderName => {
-        if (user.name.toLowerCase().includes(senderName.toLowerCase()) || 
-            senderName.toLowerCase().includes(user.name.toLowerCase())) {
-          senderMap[senderName] = user._id;
+      const userName = user.name.toLowerCase();
+      csvResult.data.forEach(msg => {
+        const senderName = msg.senderName.toLowerCase();
+        if (userName.includes(senderName) || senderName.includes(userName)) {
+          senderMap[msg.senderName] = user._id;
         }
       });
     });
 
-    // Create messages in database
-    const bulkOps = results.map(msg => ({
-      insertOne: {
-        document: {
-          chat: chatId,
-          sender: senderMap[msg.senderName] || userId, // Default to uploader if can't match
-          content: {
-            text: msg.text,
-            type: 'text'
-          },
-          metadata: {
-            importedFrom: {
-              source: 'csv',
-              originalTimestamp: msg.timestamp,
-              originalText: msg.originalText,
-              wasTranslated: msg.wasTranslated
-            }
-          },
-          createdAt: msg.timestamp,
-          readBy: chat.participants.map(p => ({ user: p }))
-        }
+    // Calculate date range and sender breakdown
+    const dateRange = { start: null, end: null };
+    const senderCounts = {};
+    
+    csvResult.data.forEach(msg => {
+      // Update date range
+      if (!dateRange.start || msg.timestamp < dateRange.start) {
+        dateRange.start = msg.timestamp;
       }
-    }));
-
-    if (bulkOps.length > 0) {
-      await Message.bulkWrite(bulkOps);
-    }
-
-    // Update chat with import info
-    await Chat.findByIdAndUpdate(chatId, {
-      $push: {
-        csvImports: {
-          fileName: req.file.originalname,
-          importedAt: new Date(),
-          messageCount: stats.totalMessages,
-          dateRange: stats.dateRange
-        }
+      if (!dateRange.end || msg.timestamp > dateRange.end) {
+        dateRange.end = msg.timestamp;
       }
+      
+      // Update sender counts
+      senderCounts[msg.senderName] = (senderCounts[msg.senderName] || 0) + 1;
     });
 
+    // Prepare messages for batch processing
+    const messagesToImport = csvResult.data.map(msg => ({
+      sender: senderMap[msg.senderName] || userId,
+      text: msg.text,
+      timestamp: msg.timestamp,
+      originalText: msg.originalText,
+      wasTranslated: msg.wasTranslated,
+      source: msg.source,
+      readBy: chat.participants.map(p => ({ user: p }))
+    }));
+
+    // Use batch processor with rollback support
+    const batchResult = await batchProcessor.processBatch(
+      messagesToImport,
+      chatId,
+      {
+        batchSize: 1000,
+        enableRollback: enableRollback === 'true' || enableRollback === true,
+        progressCallback: (progress) => {
+          console.log(`Batch Processing: ${progress.percentage}% (${progress.processed}/${progress.total})`);
+        },
+        metadata: {
+          fileName: req.file.originalname,
+          format: format,
+          dateRange: dateRange,
+          importId: new Date().getTime().toString() // Simple import ID
+        }
+      }
+    );
+
     // Clean up uploaded file
-    fs.unlinkSync(req.file.path);
+    if (req.cleanupUploadedFile) {
+      await req.cleanupUploadedFile();
+    } else {
+      fs.unlinkSync(req.file.path);
+    }
+
+    if (!batchResult.success) {
+      return res.status(500).json({
+        error: 'Batch processing failed',
+        details: batchResult.error,
+        rollbackInfo: batchResult.rollbackInfo
+      });
+    }
 
     res.status(200).json({
       success: true,
       stats: {
-        messagesImported: stats.totalMessages,
-        dateRange: stats.dateRange,
-        senderBreakdown: stats.senderCounts
+        messagesImported: batchResult.importedMessages,
+        messagesSkipped: batchResult.skippedMessages,
+        totalProcessed: batchResult.processedMessages,
+        dateRange: dateRange,
+        senderBreakdown: senderCounts,
+        format: format,
+        errors: batchResult.errors,
+        successRate: csvResult.stats.successRate,
+        batchInfo: {
+          totalBatches: batchResult.batches.length,
+          successfulBatches: batchResult.batches.filter(b => b.errors.length === 0).length,
+          failedBatches: batchResult.batches.filter(b => b.errors.length > 0).length
+        },
+        rollbackInfo: batchResult.rollbackInfo
       }
     });
   } catch (error) {
     console.error('Error uploading CSV:', error);
     
     // Clean up file on error
-    if (req.file && fs.existsSync(req.file.path)) {
+    if (req.cleanupUploadedFile) {
+      await req.cleanupUploadedFile();
+    } else if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
     
-    res.status(500).json({ error: 'Failed to process CSV file' });
+    res.status(500).json({ 
+      error: 'Failed to process CSV file',
+      details: error.message 
+    });
   }
 };
 
@@ -398,18 +393,18 @@ exports.addReaction = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to react to this message' });
     }
 
-    // Remove existing reaction from this user
-    message.metadata.reactions = message.metadata.reactions.filter(
-      r => r.user.toString() !== userId
-    );
+    await message.addReaction(userId, emoji);
 
-    // Add new reaction
-    message.metadata.reactions.push({
-      user: userId,
-      emoji
-    });
-
-    await message.save();
+    // Emit socket event for real-time update
+    const socketManager = req.app.get('socketManager');
+    if (socketManager) {
+      socketManager.sendToRoom(message.chat._id, 'reaction_added', {
+        messageId: message._id,
+        emoji,
+        userId,
+        timestamp: new Date().toISOString()
+      });
+    }
 
     res.status(200).json({
       success: true,
@@ -418,6 +413,355 @@ exports.addReaction = async (req, res) => {
   } catch (error) {
     console.error('Error adding reaction:', error);
     res.status(500).json({ error: 'Failed to add reaction' });
+  }
+};
+
+// Edit message
+exports.editMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const { text } = req.body;
+    const userId = req.userId;
+
+    if (!text || text.trim().length === 0) {
+      return res.status(400).json({ error: 'Message text is required' });
+    }
+
+    const message = await Message.findById(messageId).populate('chat');
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Verify user is participant in chat
+    if (!message.chat.participants.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized to access this message' });
+    }
+
+    try {
+      await message.editMessage(text.trim(), userId);
+      await message.populate('sender', 'name avatar');
+
+      // Emit socket event for real-time update
+      const socketManager = req.app.get('socketManager');
+      if (socketManager) {
+        socketManager.sendToRoom(message.chat._id, 'message_edited', {
+          messageId: message._id,
+          newText: message.content.text,
+          editedAt: message.metadata.editedAt,
+          editedBy: userId
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  } catch (error) {
+    console.error('Error editing message:', error);
+    res.status(500).json({ error: 'Failed to edit message' });
+  }
+};
+
+// Delete message
+exports.deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.userId;
+
+    const message = await Message.findById(messageId).populate('chat');
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Verify user is participant in chat
+    if (!message.chat.participants.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized to access this message' });
+    }
+
+    try {
+      await message.deleteMessage(userId);
+
+      // Emit socket event for real-time update
+      const socketManager = req.app.get('socketManager');
+      if (socketManager) {
+        socketManager.sendToRoom(message.chat._id, 'message_deleted', {
+          messageId: message._id,
+          deletedBy: userId
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: 'Message deleted successfully'
+      });
+    } catch (error) {
+      return res.status(400).json({ error: error.message });
+    }
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).json({ error: 'Failed to delete message' });
+  }
+};
+
+// Mark message as read
+exports.markMessageAsRead = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.userId;
+
+    const message = await Message.findById(messageId).populate('chat');
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Verify user is participant in chat
+    if (!message.chat.participants.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized to access this message' });
+    }
+
+    await message.markAsRead(userId);
+
+    // Emit socket event for real-time update
+    const socketManager = req.app.get('socketManager');
+    if (socketManager) {
+      socketManager.sendToRoom(message.chat._id, 'message_read', {
+        messageId: message._id,
+        readBy: userId,
+        readAt: new Date()
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: 'Message marked as read'
+    });
+  } catch (error) {
+    console.error('Error marking message as read:', error);
+    res.status(500).json({ error: 'Failed to mark message as read' });
+  }
+};
+
+// Remove reaction from message
+exports.removeReaction = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.userId;
+
+    const message = await Message.findById(messageId).populate('chat');
+    
+    if (!message) {
+      return res.status(404).json({ error: 'Message not found' });
+    }
+
+    // Verify user is participant in chat
+    if (!message.chat.participants.includes(userId)) {
+      return res.status(403).json({ error: 'Not authorized to react to this message' });
+    }
+
+    await message.removeReaction(userId);
+
+    // Emit socket event for real-time update
+    const socketManager = req.app.get('socketManager');
+    if (socketManager) {
+      socketManager.sendToRoom(message.chat._id, 'reaction_removed', {
+        messageId: message._id,
+        removedBy: userId
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message
+    });
+  } catch (error) {
+    console.error('Error removing reaction:', error);
+    res.status(500).json({ error: 'Failed to remove reaction' });
+  }
+};
+
+// Search messages in a chat
+exports.searchMessages = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { q: searchTerm, page = 1, limit = 20 } = req.query;
+    const userId = req.userId;
+
+    if (!searchTerm || searchTerm.trim().length === 0) {
+      return res.status(400).json({ error: 'Search term is required' });
+    }
+
+    // Verify user is participant in chat
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: userId
+    });
+
+    if (!chat) {
+      return res.status(403).json({ error: 'Not authorized to search this chat' });
+    }
+
+    const options = {
+      limit: parseInt(limit),
+      skip: (parseInt(page) - 1) * parseInt(limit)
+    };
+
+    const messages = await Message.searchMessages(chatId, searchTerm.trim(), options);
+
+    // Get total count for pagination
+    const totalCount = await Message.countDocuments({
+      chat: chatId,
+      isDeleted: false,
+      $text: { $search: searchTerm.trim() }
+    });
+
+    res.status(200).json({
+      success: true,
+      messages,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalCount,
+        pages: Math.ceil(totalCount / parseInt(limit))
+      },
+      searchTerm: searchTerm.trim()
+    });
+  } catch (error) {
+    console.error('Error searching messages:', error);
+    res.status(500).json({ error: 'Failed to search messages' });
+  }
+};
+
+// Validate CSV file
+exports.validateCsvFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const userId = req.userId;
+    const options = {
+      maxFileSize: 50 * 1024 * 1024, // 50MB
+      encoding: req.body.encoding || 'utf8'
+    };
+
+    const validation = await csvService.validateCSVFile(req.file.path, options);
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.status(200).json({
+      success: true,
+      validation
+    });
+  } catch (error) {
+    console.error('Error validating CSV file:', error);
+    
+    // Clean up file on error
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.status(500).json({ error: 'Failed to validate CSV file' });
+  }
+};
+
+// Preview CSV file content
+exports.previewCsvFile = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const userId = req.userId;
+    const options = {
+      encoding: req.body.encoding || 'utf8',
+      maxRows: parseInt(req.body.maxRows) || 20
+    };
+
+    const validation = await csvService.validateCSVFile(req.file.path, options);
+    
+    if (!validation.isValid) {
+      // Clean up uploaded file
+      fs.unlinkSync(req.file.path);
+      
+      return res.status(400).json({
+        success: false,
+        error: 'CSV validation failed',
+        validation
+      });
+    }
+
+    // Clean up uploaded file
+    fs.unlinkSync(req.file.path);
+
+    res.status(200).json({
+      success: true,
+      preview: validation.preview,
+      detectedFormat: validation.detectedFormat,
+      stats: validation.stats,
+      warnings: validation.warnings
+    });
+  } catch (error) {
+    console.error('Error previewing CSV file:', error);
+    
+    // Clean up file on error
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
+    }
+    
+    res.status(500).json({ error: 'Failed to preview CSV file' });
+  }
+};
+
+// Download CSV template
+exports.downloadCsvTemplate = async (req, res) => {
+  try {
+    const { format } = req.params;
+    
+    if (!format) {
+      return res.status(400).json({ error: 'Format parameter is required' });
+    }
+
+    const supportedFormats = csvService.getSupportedFormats();
+    if (!supportedFormats[format]) {
+      return res.status(400).json({ 
+        error: `Unsupported format: ${format}`,
+        supportedFormats: Object.keys(supportedFormats)
+      });
+    }
+
+    const template = csvService.generateCSVTemplate(format);
+    const formatInfo = supportedFormats[format];
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${format}_template.csv"`);
+    res.setHeader('X-Format-Info', JSON.stringify(formatInfo));
+    
+    res.status(200).send(template);
+  } catch (error) {
+    console.error('Error generating CSV template:', error);
+    res.status(500).json({ error: 'Failed to generate CSV template' });
+  }
+};
+
+// Get supported CSV formats
+exports.getSupportedFormats = async (req, res) => {
+  try {
+    const formats = csvService.getSupportedFormats();
+    
+    res.status(200).json({
+      success: true,
+      formats
+    });
+  } catch (error) {
+    console.error('Error getting supported formats:', error);
+    res.status(500).json({ error: 'Failed to get supported formats' });
   }
 };
 
@@ -452,5 +796,79 @@ exports.updateChatMetadata = async (req, res) => {
   } catch (error) {
     console.error('Error updating chat:', error);
     res.status(500).json({ error: 'Failed to update chat' });
+  }
+};
+
+// Rollback a CSV import
+exports.rollbackCsvImport = async (req, res) => {
+  try {
+    const { chatId, importId } = req.params;
+    const userId = req.userId;
+
+    // Verify user is participant
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: userId
+    });
+
+    if (!chat) {
+      return res.status(403).json({ error: 'Not authorized to access this chat' });
+    }
+
+    // Check if import exists
+    const importExists = chat.csvImports && chat.csvImports.some(imp => 
+      imp.importId && imp.importId.toString() === importId
+    );
+
+    if (!importExists) {
+      return res.status(404).json({ error: 'Import not found' });
+    }
+
+    // Perform rollback
+    const rollbackResult = await batchProcessor.rollbackImport(chatId, importId);
+
+    res.status(200).json({
+      success: true,
+      rollback: rollbackResult
+    });
+
+  } catch (error) {
+    console.error('Error rolling back import:', error);
+    res.status(500).json({ 
+      error: 'Failed to rollback import',
+      details: error.message 
+    });
+  }
+};
+
+// Get import statistics for a chat
+exports.getImportStats = async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.userId;
+
+    // Verify user is participant
+    const chat = await Chat.findOne({
+      _id: chatId,
+      participants: userId
+    });
+
+    if (!chat) {
+      return res.status(403).json({ error: 'Not authorized to access this chat' });
+    }
+
+    const stats = await batchProcessor.getImportStats(chatId);
+
+    res.status(200).json({
+      success: true,
+      stats
+    });
+
+  } catch (error) {
+    console.error('Error getting import stats:', error);
+    res.status(500).json({ 
+      error: 'Failed to get import statistics',
+      details: error.message 
+    });
   }
 };

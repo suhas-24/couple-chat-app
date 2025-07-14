@@ -1,0 +1,4 @@
+date,timestamp,sender,message
+07/14/25,9:30 am,Test User,Valid message
+invalid-date,invalid-time,,Invalid message
+07/14/25,9:32 am,Test User,Another valid message
