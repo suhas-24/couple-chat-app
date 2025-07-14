@@ -4,6 +4,15 @@ A charming and feature-rich chat application designed specifically for couples t
 
 ## ✨ Features
 
+### 🔐 Secure Authentication System
+- **Google OAuth Integration**: Quick and secure login with your Google account
+- **Email/Password Authentication**: Traditional login with comprehensive security
+- **Password Reset**: Secure password recovery via email verification
+- **Email Verification**: Account verification for enhanced security
+- **Account Lockout Protection**: Automatic protection against brute force attacks
+- **Secure Session Management**: JWT tokens with httpOnly cookies
+- **Complete Account Deletion**: Full data cleanup when deleting accounts
+
 ### 🎨 Cute Couples Theme
 - Adorable and romantic UI design tailored for couples
 - Lovely color schemes and heart-warming visual elements
@@ -57,9 +66,26 @@ Before you begin, ensure you have the following installed:
    
    Configure the following variables in your `.env` file:
    ```env
+   # AI Integration
    GEMINI_API_KEY=your_gemini_api_key_here
-   DATABASE_URL=your_database_connection_string
+   
+   # Database
+   DATABASE_URL=your_mongodb_connection_string
+   
+   # Authentication
    JWT_SECRET=your_jwt_secret_key
+   JWT_EXPIRE=7d
+   GOOGLE_CLIENT_ID=your_google_oauth_client_id
+   
+   # Email Service (for password reset and verification)
+   FRONTEND_URL=http://localhost:3000
+   
+   # Rate Limiting
+   RATE_LIMIT_WINDOW_MS=900000
+   RATE_LIMIT_MAX_REQUESTS=100
+   
+   # Environment
+   NODE_ENV=development
    ```
 
 4. **Set up the database**
@@ -132,12 +158,15 @@ Your privacy is our priority:
 
 ## 🛠️ Tech Stack
 
-- **Frontend**: React.js, TypeScript, Tailwind CSS
-- **Backend**: Node.js, Express.js
-- **Database**: MongoDB/PostgreSQL
+- **Frontend**: Next.js 14, React.js, TypeScript, Tailwind CSS
+- **Backend**: Node.js, Express.js, Socket.io
+- **Database**: MongoDB with Mongoose ODM
+- **Authentication**: JWT with Google OAuth 2.0, bcryptjs
+- **Security**: Helmet, CORS, Rate Limiting, Input Validation
 - **AI Integration**: Google Gemini 2.5 Flash API
-- **Authentication**: JWT
 - **File Processing**: Multer, CSV Parser
+- **Testing**: Jest, Supertest
+- **Email Service**: Custom email templates with HTML/Text support
 
 ## 📄 License
 
