@@ -127,10 +127,14 @@ export const authAPI = {
     // The server will clear the httpOnly cookie
   },
 
-  getCurrentUser: (): User | null => {
-    // For cookie auth, we need to make an API call to get current user
-    // This is handled by the AuthContext
-    return null;
+  getCurrentUser: async (): Promise<AuthResponse | null> => {
+    try {
+      const response = await apiCall<AuthResponse>('/auth/me');
+      return response;
+    } catch (error) {
+      console.error('Error getting current user:', error);
+      return null;
+    }
   },
 
   getUserByEmail: async (email: string): Promise<User | null> => {

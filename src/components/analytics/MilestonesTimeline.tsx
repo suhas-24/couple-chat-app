@@ -11,8 +11,7 @@ import {
   MessageCircle,
   Plane,
   GraduationCap,
-  Home,
-  Ring
+  Home
 } from 'lucide-react';
 
 interface Milestone {
@@ -37,7 +36,7 @@ const getMilestoneIcon = (type: string) => {
     achievement: <GraduationCap className="h-5 w-5" />,
     firstTime: <Star className="h-5 w-5" />,
     iLoveYou: <Heart className="h-5 w-5" />,
-    proposal: <Ring className="h-5 w-5" />,
+    proposal: <Sparkles className="h-5 w-5" />,
     moving: <Home className="h-5 w-5" />,
     message_count: <MessageCircle className="h-5 w-5" />,
     conversation_streak: <Award className="h-5 w-5" />,
