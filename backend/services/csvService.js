@@ -41,6 +41,47 @@ class CSVService {
   }
 
   /**
+   * Handle encrypted file decryption for processing
+   * @param {string} filePath - Path to encrypted file
+   * @param {Function} decryptFunction - Function to decrypt file
+   * @returns {Promise<string>} Path to temporary decrypted file
+   */
+  async handleEncryptedFile(filePath, decryptFunction) {
+    if (!decryptFunction) {
+      // File is not encrypted, return original path
+      return filePath;
+    }
+
+    try {
+      // Decrypt file content
+      const decryptedBuffer = await decryptFunction();
+      
+      // Create temporary file for processing
+      const tempFilePath = filePath.replace('.enc', '.temp');
+      fs.writeFileSync(tempFilePath, decryptedBuffer);
+      
+      return tempFilePath;
+    } catch (error) {
+      console.error('File decryption error:', error);
+      throw new Error('Failed to decrypt uploaded file for processing');
+    }
+  }
+
+  /**
+   * Clean up temporary decrypted file
+   * @param {string} tempFilePath - Path to temporary file
+   */
+  async cleanupTempFile(tempFilePath) {
+    try {
+      if (tempFilePath.includes('.temp') && fs.existsSync(tempFilePath)) {
+        fs.unlinkSync(tempFilePath);
+      }
+    } catch (error) {
+      console.error('Temp file cleanup error:', error);
+    }
+  }
+
+  /**
    * Validate CSV file format and structure with enhanced validation
    * @param {string} filePath - Path to the CSV file
    * @param {Object} options - Validation options

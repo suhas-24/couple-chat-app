@@ -1,13 +1,25 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { api, User, AuthResponse } from '@/services/api';
 import { useRouter } from 'next/router';
-import socketService from '@/services/socketService';
+
+// Define types locally to avoid import issues
+interface User {
+  _id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  createdAt: string;
+}
+
+interface AuthResponse {
+  success: boolean;
+  user: User;
+}
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (name: string, email: string, password: string) => Promise<void>;
+  signup: (name: string, email: string, password: string) => Promise<AuthResponse | undefined>;
   logout: () => void;
   updateUser: (user: User) => void;
 }
@@ -24,11 +36,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const checkAuthStatus = async () => {
       try {
         // Try to get current user from server (checks cookie)
-        const response = await api.auth.getCurrentUser();
-        if (response && response.success) {
-          setUser(response.user);
-          // Initialize socket connection if user is authenticated
-          socketService.connect();
+        const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+        const response = await fetch(`${API_BASE_URL}/auth/me`, {
+          credentials: 'include'
+        });
+        if (response.ok) {
+          const data = await response.json();
+          if (data.success) {
+            setUser(data.user);
+          }
         }
       } catch (error) {
         console.error('Error checking auth status:', error);
@@ -43,13 +59,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (email: string, password: string) => {
     try {
-      const response: AuthResponse = await api.auth.login(email, password);
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_BASE_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ email, password })
+      });
       
-      if (response.success) {
-        setUser(response.user);
-        // Initialize socket connection
-        socketService.connect();
-        router.push('/chat');
+      if (response.ok) {
+        const data: AuthResponse = await response.json();
+        if (data.success) {
+          setUser(data.user);
+          router.push('/chat');
+        }
+      } else {
+        throw new Error('Login failed');
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -59,13 +84,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signup = async (name: string, email: string, password: string) => {
     try {
-      const response: AuthResponse = await api.auth.signup(name, email, password);
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      const response = await fetch(`${API_BASE_URL}/auth/signup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ name, email, password })
+      });
       
-      if (response.success) {
-        setUser(response.user);
-        // Initialize socket connection
-        socketService.connect();
-        router.push('/chat');
+      if (response.ok) {
+        const data: AuthResponse = await response.json();
+        if (data.success) {
+          setUser(data.user);
+          // Force redirect to chat page
+          await router.push('/chat');
+          return data;
+        }
+      } else {
+        throw new Error('Signup failed');
       }
     } catch (error) {
       console.error('Signup error:', error);
@@ -75,12 +111,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = async () => {
     try {
-      await api.auth.logout();
+      const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api';
+      await fetch(`${API_BASE_URL}/auth/logout`, {
+        method: 'POST',
+        credentials: 'include'
+      });
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      // Disconnect socket
-      socketService.disconnect();
       setUser(null);
       router.push('/');
     }

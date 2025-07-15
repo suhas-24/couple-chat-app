@@ -125,13 +125,15 @@ exports.getRelationshipInsights = async (req, res) => {
       messagesBySender
     };
 
-    // Get AI insights
-    const insights = await geminiService.analyzeRelationshipHealth(
+    // Get enhanced AI insights with context
+    const insights = await geminiService.analyzeRelationshipHealthWithContext(
       recentMessages.map(m => ({
-        sender: m.sender.name,
-        content: { text: m.content.text }
+        sender: m.sender,
+        content: { text: m.content.text },
+        createdAt: m.createdAt
       })),
-      stats
+      stats,
+      chat.metadata || {}
     );
 
     res.status(200).json({

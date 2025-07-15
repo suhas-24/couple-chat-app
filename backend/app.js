@@ -6,25 +6,62 @@ const path = require('path');
 const helmet = require('helmet');
 const cookieParser = require('cookie-parser');
 const { generalLimiter } = require('./middleware/rateLimiter');
+const { 
+  globalErrorHandler, 
+  handleNotFound, 
+  handleDatabaseErrors,
+  requestTimeout,
+  requestLogger 
+} = require('./middleware/errorHandler');
+const sanitizationMiddleware = require('./middleware/sanitization');
+const { requestTracker } = require('./services/monitoringService');
 
 // Load environment variables
 dotenv.config();
+
+// Initialize database error handlers
+handleDatabaseErrors();
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Middleware
-// Security middleware
+// Enhanced security middleware
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      scriptSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      scriptSrc: ["'self'", "https://apis.google.com", "https://accounts.google.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com"],
+      connectSrc: ["'self'", "https://generativelanguage.googleapis.com", "wss:", "ws:"],
+      frameSrc: ["'self'", "https://accounts.google.com"],
+      objectSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"],
+      frameAncestors: ["'none'"],
+      upgradeInsecureRequests: process.env.NODE_ENV === 'production' ? [] : null
     },
+    reportOnly: false
   },
   crossOriginEmbedderPolicy: false,
+  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  dnsPrefetchControl: { allow: false },
+  frameguard: { action: 'deny' },
+  hidePoweredBy: true,
+  hsts: {
+    maxAge: 31536000,
+    includeSubDomains: true,
+    preload: true
+  },
+  ieNoOpen: true,
+  noSniff: true,
+  originAgentCluster: true,
+  permittedCrossDomainPolicies: false,
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+  xssFilter: true
 }));
 
 // Rate limiting
@@ -89,17 +126,38 @@ app.use(cors(corsOptions));
 // Handle pre-flight explicitly (some proxies strip automatic handling).
 app.options('*', cors(corsOptions));
 
-app.use(express.json({ limit: '10mb' }));
+// Request timeout middleware
+app.use(requestTimeout(30000)); // 30 second timeout
+
+// Enhanced request logging
+app.use(requestLogger);
+
+// Request tracking for monitoring
+app.use(requestTracker);
+
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    try {
+      JSON.parse(buf);
+    } catch (e) {
+      const error = new Error('Invalid JSON');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Request logging middleware
-app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
-  next();
-});
+// Input sanitization middleware (after body parsing)
+app.use(sanitizationMiddleware.sanitizeInput());
+
+// Additional security headers
+app.use(sanitizationMiddleware.setSecurityHeaders());
 
 // Static file serving
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/monitoring', express.static(path.join(__dirname, 'public')));
 
 // Database connection
 mongoose.connect(process.env.DATABASE_URL || 'mongodb://localhost:27017/couple-chat', {
@@ -114,6 +172,8 @@ const authRoutes = require('./routes/authRoutes');
 const chatRoutes = require('./routes/chatRoutes');
 const analyticsRoutes = require('./routes/analyticsRoutes');
 const aiRoutes = require('./routes/aiRoutes');
+const healthRoutes = require('./routes/healthRoutes');
+const monitoringRoutes = require('./routes/monitoringRoutes');
 // Add more route imports as needed
 
 // Mount routes
@@ -121,45 +181,17 @@ app.use('/api/auth', authRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/health', healthRoutes);
+app.use('/api/monitoring', monitoringRoutes);
 // Add more route mounts as needed
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    status: 'OK',
-    message: 'Couple Chat API is running',
-    timestamp: new Date().toISOString()
-  });
-});
+// 404 handler (must come before global error handler)
+app.use(handleNotFound);
 
-// Error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({
-    message: 'Something went wrong!',
-    error: process.env.NODE_ENV === 'production' ? {} : err.message
-  });
-});
+// Global error handling middleware (must be last)
+app.use(globalErrorHandler);
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({
-    message: 'Route not found'
-  });
-});
-
-// Start server
-const server = app.listen(PORT, () => {
-  console.log(`💕 Couple Chat Server running on port ${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-});
-
-// Initialize Socket.io
-const SocketManager = require('./services/socketManager');
-const socketManager = new SocketManager(server);
-
-// Make socket manager available to other modules
-app.set('socketManager', socketManager);
+// Socket manager will be initialized by server.js
 
 module.exports = app;
 

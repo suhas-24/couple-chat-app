@@ -1,4 +1,5 @@
 import React, { useState, ChangeEvent } from 'react';
+import { Upload } from 'lucide-react';
 
 interface CsvUploadProps {
   onUpload: (file: File) => void;
@@ -38,58 +39,63 @@ const CsvUpload: React.FC<CsvUploadProps> = ({ onUpload }) => {
 
   return (
     <div className="flex flex-col items-center w-full">
-      <div className="bg-input-bg/50 border-2 border-dashed border-border-color rounded-lg p-6 w-full text-center hover:bg-input-bg/70 transition">
-        <label
-          htmlFor="csv-file-input"
-          className="cursor-pointer flex flex-col items-center space-y-3"
-        >
-          <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-            <span className="text-2xl">📂</span>
-          </div>
-          <div>
-            <p className="text-text-primary font-medium">
-              {fileName || 'Click to upload CSV file'}
-            </p>
-            <p className="text-text-secondary text-sm mt-1">
-              Supports WhatsApp and other chat exports
-            </p>
-          </div>
+      {/* TropicTalk Upload Area */}
+      <div className="flex flex-col items-center justify-center border-4 border-dashed border-[var(--brand-accent)] rounded-lg p-10 text-center w-full bg-white/30 hover:bg-white/50 transition">
+        <Upload className="w-16 h-16 text-[var(--brand-accent)] mb-4" />
+        <p className="font-semibold text-xl text-[var(--brand-primary)] font-typewriter">
+          {fileName || 'Drag & Drop Your CSV File'}
+        </p>
+        <p className="text-sm text-[var(--brand-accent)] mt-1 font-typewriter">
+          or click to browse
+        </p>
+        <label className="stamp-button mt-6 font-typewriter text-lg" htmlFor="csv-file-input">
+          Select File
         </label>
         <input
           id="csv-file-input"
           type="file"
           accept=".csv"
-          className="hidden"
+          className="sr-only"
           onChange={handleFileChange}
         />
       </div>
       
       {fileName && (
-        <div className="mt-4 w-full bg-input-bg rounded-lg p-4">
+        <div className="mt-4 w-full bg-white/50 rounded-lg p-4 border border-[var(--brand-accent)]/50">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-primary font-medium">{fileName}</span>
+            <span className="text-[var(--brand-primary)] font-medium font-typewriter">{fileName}</span>
             <button
-              className="text-xs text-text-secondary hover:text-primary underline"
+              className="text-xs text-[var(--brand-accent)] hover:text-[var(--brand-primary)] underline font-typewriter"
               onClick={handleReset}
               type="button"
             >
               Remove
             </button>
           </div>
-          <div className="text-text-secondary text-xs">
+          <div className="text-[var(--brand-accent)] text-xs font-typewriter">
             Size: {meta?.size} | Modified: {meta?.lastModified}
           </div>
         </div>
       )}
       
+      {/* File Formatting Guide */}
+      <div className="mt-8 font-typewriter text-left text-sm text-[var(--brand-text-dark)] bg-white/50 p-4 rounded-md border border-[var(--brand-accent)]/50 w-full">
+        <h3 className="font-bold text-base mb-2 underline">File Formatting Guide:</h3>
+        <ul className="list-disc list-inside space-y-1">
+          <li>File must be in <span className="font-bold">.CSV</span> format.</li>
+          <li>Include three columns: <span className="font-bold">'Date'</span>, <span className="font-bold">'Sender'</span>, and <span className="font-bold">'Message'</span>.</li>
+          <li>Date format should be consistent (e.g., <span className="font-mono bg-[var(--brand-accent)]/20 px-1 rounded">YYYY-MM-DD HH:MM:SS</span>).</li>
+        </ul>
+      </div>
+      
       {error && (
         <div className="mt-4 w-full bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-          <p className="text-red-400 text-sm">{error}</p>
+          <p className="text-red-400 text-sm font-typewriter">{error}</p>
         </div>
       )}
       
-      <p className="text-text-secondary text-xs mt-4 text-center">
-        Your data is secure and processed locally
+      <p className="text-[var(--brand-accent)] text-xs font-normal leading-normal pt-4 px-4 text-center font-typewriter">
+        We respect your privacy. All uploaded data is processed securely and is never shared.
       </p>
     </div>
   );

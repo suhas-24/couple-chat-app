@@ -89,9 +89,16 @@ messageSchema.virtual('isRead').get(function() {
 // Pre-save hook for encryption and chat updates
 messageSchema.pre('save', async function(next) {
   try {
-    // Encrypt message content if encryption is enabled
-    if (this.isModified('content.text') && process.env.ENABLE_MESSAGE_ENCRYPTION === 'true') {
-      this.content.encryptedText = encryptionService.encrypt(this.content.text);
+    // Always encrypt message content for security
+    if (this.isModified('content.text')) {
+      try {
+        this.content.encryptedText = encryptionService.encrypt(this.content.text);
+        // Clear plain text after encryption (keep for compatibility during transition)
+        // this.content.text = '[ENCRYPTED]';
+      } catch (encryptionError) {
+        console.error('Message encryption failed:', encryptionError);
+        // Continue without encryption if it fails (fallback)
+      }
     }
 
     // Update chat's lastMessageAt for new messages
@@ -109,7 +116,8 @@ messageSchema.pre('save', async function(next) {
 
 // Method to decrypt message content
 messageSchema.methods.getDecryptedText = function() {
-  if (this.content.encryptedText && process.env.ENABLE_MESSAGE_ENCRYPTION === 'true') {
+  // Try to decrypt if encrypted text exists
+  if (this.content.encryptedText) {
     try {
       return encryptionService.decrypt(this.content.encryptedText);
     } catch (error) {
@@ -117,6 +125,7 @@ messageSchema.methods.getDecryptedText = function() {
       return this.content.text; // Fallback to plain text
     }
   }
+  // Return plain text if no encrypted version exists (legacy messages)
   return this.content.text;
 };
 

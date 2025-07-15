@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Sparkles, X, SendHorizontal, Loader2, Calendar, Search, MessageSquare, Heart } from 'lucide-react';
+import { Sparkles, X, SendHorizontal, Loader2, Calendar, Search, MessageSquare, Heart, Shield, Settings, RefreshCw } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useChat } from '@/context/ChatContext';
 import { api } from '@/services/api';
@@ -34,6 +34,13 @@ const AIChatBot: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [dateMemory, setDateMemory] = useState<DateMemory | null>(null);
   const [wordStats, setWordStats] = useState<{word: string, totalCount: number, countByParticipant: Record<string, number>} | null>(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [privacySettings, setPrivacySettings] = useState({
+    allowDataAnalysis: true,
+    cacheResponses: true,
+    shareInsights: false
+  });
+  const [conversationHistory, setConversationHistory] = useState<AIChatMessage[]>([]);
   
   // References
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -276,14 +283,89 @@ const AIChatBot: React.FC = () => {
                 <Sparkles size={18} />
                 <h3 className="font-medium">Relationship AI</h3>
               </div>
-              <button 
-                onClick={toggleChat}
-                className="hover:bg-white/20 rounded-full p-1.5 transition-colors"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
+              <div className="flex items-center space-x-2">
+                <button 
+                  onClick={() => setShowSettings(!showSettings)}
+                  className="hover:bg-white/20 rounded-full p-1.5 transition-colors"
+                  aria-label="Settings"
+                >
+                  <Settings size={16} />
+                </button>
+                <button 
+                  onClick={() => {
+                    setMessages([]);
+                    setConversationHistory([]);
+                    setDateMemory(null);
+                    setWordStats(null);
+                    setError(null);
+                  }}
+                  className="hover:bg-white/20 rounded-full p-1.5 transition-colors"
+                  aria-label="Clear conversation"
+                >
+                  <RefreshCw size={16} />
+                </button>
+                <button 
+                  onClick={toggleChat}
+                  className="hover:bg-white/20 rounded-full p-1.5 transition-colors"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
             </div>
+
+            {/* Settings Panel */}
+            {showSettings && (
+              <div className="bg-white border-b border-pink-100 p-4">
+                <h4 className="text-sm font-medium text-gray-700 mb-3 flex items-center">
+                  <Shield size={16} className="mr-2 text-pink-500" />
+                  Privacy & Settings
+                </h4>
+                <div className="space-y-3">
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Allow data analysis</span>
+                    <input
+                      type="checkbox"
+                      checked={privacySettings.allowDataAnalysis}
+                      onChange={(e) => setPrivacySettings(prev => ({
+                        ...prev,
+                        allowDataAnalysis: e.target.checked
+                      }))}
+                      className="rounded border-gray-300 text-pink-500 focus:ring-pink-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Cache AI responses</span>
+                    <input
+                      type="checkbox"
+                      checked={privacySettings.cacheResponses}
+                      onChange={(e) => setPrivacySettings(prev => ({
+                        ...prev,
+                        cacheResponses: e.target.checked
+                      }))}
+                      className="rounded border-gray-300 text-pink-500 focus:ring-pink-500"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between">
+                    <span className="text-sm text-gray-600">Share insights for improvement</span>
+                    <input
+                      type="checkbox"
+                      checked={privacySettings.shareInsights}
+                      onChange={(e) => setPrivacySettings(prev => ({
+                        ...prev,
+                        shareInsights: e.target.checked
+                      }))}
+                      className="rounded border-gray-300 text-pink-500 focus:ring-pink-500"
+                    />
+                  </label>
+                </div>
+                <div className="mt-3 pt-3 border-t border-pink-100">
+                  <p className="text-xs text-gray-500">
+                    🔒 Your conversations are private and secure. AI analysis happens locally and is not shared with third parties.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* Messages container */}
             <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gradient-to-br from-pink-50 to-purple-50">

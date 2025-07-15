@@ -1,0 +1,91 @@
+# Couple Chat App - Staging Docker Compose
+# Configuration for staging environment deployment
+
+version: '3.8'
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0-jammy
+    container_name: couple-chat-db-staging
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE}
+    volumes:
+      - mongodb_staging_data:/data/db
+      - ./docker/mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+    ports:
+      - "27017:27017"
+    networks:
+      - staging-network
+
+  # Redis for Session Management
+  redis:
+    image: redis:7-alpine
+    container_name: couple-chat-redis-staging
+    restart: unless-stopped
+    command: redis-server --appendonly yes --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_staging_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - staging-network
+
+  # Backend API Server
+  backend:
+    image: ${DOCKER_USERNAME}/couple-chat-backend:latest
+    container_name: couple-chat-backend-staging
+    restart: unless-stopped
+    env_file:
+      - .env.staging
+    depends_on:
+      - mongodb
+      - redis
+    volumes:
+      - ./backend/uploads:/app/uploads
+      - ./backend/logs:/app/logs
+    ports:
+      - "5000:5000"
+    networks:
+      - staging-network
+
+  # Frontend Application
+  frontend:
+    image: ${DOCKER_USERNAME}/couple-chat-frontend:latest
+    container_name: couple-chat-frontend-staging
+    restart: unless-stopped
+    env_file:
+      - .env.staging.local
+    depends_on:
+      - backend
+    ports:
+      - "3000:3000"
+    networks:
+      - staging-network
+
+  # Nginx Reverse Proxy
+  nginx:
+    image: nginx:alpine
+    container_name: couple-chat-nginx-staging
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/nginx.staging.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - frontend
+      - backend
+    networks:
+      - staging-network
+
+volumes:
+  mongodb_staging_data:
+  redis_staging_data:
+
+networks:
+  staging-network:
+    driver: bridge

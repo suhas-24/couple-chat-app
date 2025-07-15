@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { promisify } = require('util');
+const encryptionService = require('../services/encryptionService');
 
 // Promisify fs functions
 const unlink = promisify(fs.unlink);
@@ -116,6 +117,53 @@ class SecureUploadMiddleware {
         throw new Error('File not found for virus scanning');
       }
       throw error;
+    }
+  }
+
+  /**
+   * Encrypt uploaded file at rest
+   * @param {string} filePath - Path to file to encrypt
+   * @returns {Promise<string>} Path to encrypted file
+   */
+  async encryptFileAtRest(filePath) {
+    try {
+      // Read the original file
+      const fileBuffer = fs.readFileSync(filePath);
+      
+      // Encrypt the file content
+      const encryptedBuffer = encryptionService.encryptFile(fileBuffer);
+      
+      // Write encrypted content to new file
+      const encryptedFilePath = filePath + '.enc';
+      fs.writeFileSync(encryptedFilePath, encryptedBuffer);
+      
+      // Remove original unencrypted file
+      await this.cleanupFile(filePath);
+      
+      return encryptedFilePath;
+    } catch (error) {
+      console.error('File encryption error:', error);
+      throw new Error('Failed to encrypt uploaded file');
+    }
+  }
+
+  /**
+   * Decrypt file for processing
+   * @param {string} encryptedFilePath - Path to encrypted file
+   * @returns {Promise<Buffer>} Decrypted file content
+   */
+  async decryptFileForProcessing(encryptedFilePath) {
+    try {
+      // Read encrypted file
+      const encryptedBuffer = fs.readFileSync(encryptedFilePath);
+      
+      // Decrypt the content
+      const decryptedBuffer = encryptionService.decryptFile(encryptedBuffer);
+      
+      return decryptedBuffer;
+    } catch (error) {
+      console.error('File decryption error:', error);
+      throw new Error('Failed to decrypt file');
     }
   }
 
@@ -240,8 +288,19 @@ class SecureUploadMiddleware {
             await this.performBasicVirusScan(req.file.path);
           }
 
+          // Encrypt file at rest for security
+          const encryptedFilePath = await this.encryptFileAtRest(req.file.path);
+          
+          // Update file path to encrypted version
+          req.file.encryptedPath = encryptedFilePath;
+          req.file.originalPath = req.file.path;
+          req.file.path = encryptedFilePath;
+
           // Add cleanup function to request for later use
           req.cleanupUploadedFile = () => this.cleanupFile(req.file.path);
+          
+          // Add decryption function for processing
+          req.decryptUploadedFile = () => this.decryptFileForProcessing(req.file.path);
           
           next();
         } catch (error) {

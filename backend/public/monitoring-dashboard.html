@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Couple Chat App - Monitoring Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            min-height: 100vh;
+        }
+
+        .sidebar {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-right: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .sidebar h2 {
+            color: white;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+
+        .status-card {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-bottom: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .status-card h3 {
+            color: white;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+
+        .status-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #4CAF50;
+        }
+
+        .status-value.warning {
+            color: #FF9800;
+        }
+
+        .status-value.critical {
+            color: #F44336;
+        }
+
+        .main-content {
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .header {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: white;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .metric-card {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .metric-card h3 {
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+
+        .alerts-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        .alerts-section h2 {
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .alert-item {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid #F44336;
+        }
+
+        .alert-item.warning {
+            border-left-color: #FF9800;
+        }
+
+        .alert-item.info {
+            border-left-color: #2196F3;
+        }
+
+        .alert-time {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+        }
+
+        .alert-message {
+            color: white;
+            margin-top: 5px;
+        }
+
+        .logs-section {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 10px;
+            padding: 20px;
+        }
+
+        .logs-section h2 {
+            color: white;
+            margin-bottom: 15px;
+        }
+
+        .log-entry {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            padding: 5px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .log-entry:last-child {
+            border-bottom: none;
+        }
+
+        .refresh-btn {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-bottom: 20px;
+        }
+
+        .refresh-btn:hover {
+            background: #45a049;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+            
+            .sidebar {
+                display: none;
+            }
+            
+            .metrics-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <div class="sidebar">
+            <h2>💕 Couple Chat</h2>
+            <div class="status-card">
+                <h3>System Status</h3>
+                <div class="status-value" id="systemStatus">Loading...</div>
+            </div>
+            <div class="status-card">
+                <h3>Response Time</h3>
+                <div class="status-value" id="responseTime">Loading...</div>
+            </div>
+            <div class="status-card">
+                <h3>Error Rate</h3>
+                <div class="status-value" id="errorRate">Loading...</div>
+            </div>
+            <div class="status-card">
+                <h3>Active Users</h3>
+                <div class="status-value" id="activeUsers">Loading...</div>
+            </div>
+            <div class="status-card">
+                <h3>Uptime</h3>
+                <div class="status-value" id="uptime">Loading...</div>
+            </div>
+        </div>
+
+        <div class="main-content">
+            <div class="header">
+                <h1>Monitoring Dashboard</h1>
+                <p>Real-time monitoring and analytics for Couple Chat App</p>
+                <button class="refresh-btn" onclick="refreshData()">Refresh Data</button>
+            </div>
+
+            <div class="metrics-grid">
+                <div class="metric-card">
+                    <h3>Response Time Trend</h3>
+                    <div class="chart-container">
+                        <canvas id="responseTimeChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Request Volume</h3>
+                    <div class="chart-container">
+                        <canvas id="requestVolumeChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>Error Distribution</h3>
+                    <div class="chart-container">
+                        <canvas id="errorChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="metric-card">
+                    <h3>System Resources</h3>
+                    <div class="chart-container">
+                        <canvas id="resourceChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="alerts-section">
+                <h2>Active Alerts</h2>
+                <div id="alertsList">
+                    <div class="alert-item">
+                        <div class="alert-time">Loading alerts...</div>
+                        <div class="alert-message">Please wait while we load the latest alerts.</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="logs-section">
+                <h2>Recent Activity</h2>
+                <div id="logsList">
+                    <div class="log-entry">Loading activity logs...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global variables
+        let charts = {};
+        let eventSource = null;
+        let metricsData = {
+            responseTime: [],
+            requestVolume: [],
+            errors: {},
+            resources: {}
+        };
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeCharts();
+            loadInitialData();
+            setupEventStream();
+        });
+
+        // Initialize charts
+        function initializeCharts() {
+            const ctx1 = document.getElementById('responseTimeChart').getContext('2d');
+            charts.responseTime = new Chart(ctx1, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Response Time (ms)',
+                        data: [],
+                        borderColor: '#4CAF50',
+                        backgroundColor: 'rgba(76, 175, 80, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'white'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            const ctx2 = document.getElementById('requestVolumeChart').getContext('2d');
+            charts.requestVolume = new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Requests per minute',
+                        data: [],
+                        backgroundColor: 'rgba(33, 150, 243, 0.8)',
+                        borderColor: '#2196F3',
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'white'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        }
+                    }
+                }
+            });
+
+            const ctx3 = document.getElementById('errorChart').getContext('2d');
+            charts.errors = new Chart(ctx3, {
+                type: 'doughnut',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        data: [],
+                        backgroundColor: [
+                            '#F44336',
+                            '#FF9800',
+                            '#FFC107',
+                            '#4CAF50',
+                            '#2196F3'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'white'
+                            }
+                        }
+                    }
+                }
+            });
+
+            const ctx4 = document.getElementById('resourceChart').getContext('2d');
+            charts.resources = new Chart(ctx4, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'Memory Usage (%)',
+                        data: [],
+                        borderColor: '#FF9800',
+                        backgroundColor: 'rgba(255, 152, 0, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'CPU Usage (%)',
+                        data: [],
+                        borderColor: '#9C27B0',
+                        backgroundColor: 'rgba(156, 39, 176, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: 'white'
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            }
+                        },
+                        y: {
+                            ticks: {
+                                color: 'white'
+                            },
+                            grid: {
+                                color: 'rgba(255, 255, 255, 0.1)'
+                            },
+                            max: 100
+                        }
+                    }
+                }
+            });
+        }
+
+        // Load initial data
+        async function loadInitialData() {
+            try {
+                const response = await fetch('/api/monitoring/performance');
+                const data = await response.json();
+                updateDashboard(data);
+            } catch (error) {
+                console.error('Failed to load initial data:', error);
+            }
+        }
+
+        // Setup event stream for real-time updates
+        function setupEventStream() {
+            eventSource = new EventSource('/api/monitoring/stream');
+
+            eventSource.onmessage = function(event) {
+                const data = JSON.parse(event.data);
+                updateDashboard(data);
+            };
+
+            eventSource.addEventListener('alert', function(event) {
+                const alert = JSON.parse(event.data);
+                addAlert(alert);
+            });
+
+            eventSource.addEventListener('request', function(event) {
+                const request = JSON.parse(event.data);
+                addLogEntry(`${request.timestamp} - ${request.method} ${request.url} - ${request.statusCode} (${request.responseTime}ms)`);
+            });
+
+            eventSource.onerror = function(error) {
+                console.error('EventSource failed:', error);
+            };
+        }
+
+        // Update dashboard with new data
+        function updateDashboard(data) {
+            // Update sidebar status
+            document.getElementById('systemStatus').textContent = data.alerts.count > 0 ? 'Issues' : 'Healthy';
+            document.getElementById('systemStatus').className = 'status-value ' + (data.alerts.count > 0 ? 'warning' : '');
+            
+            document.getElementById('responseTime').textContent = data.requests.averageResponseTime + 'ms';
+            document.getElementById('responseTime').className = 'status-value ' + (data.requests.averageResponseTime > 5000 ? 'critical' : data.requests.averageResponseTime > 1000 ? 'warning' : '');
+            
+            document.getElementById('errorRate').textContent = data.requests.errorRate + '%';
+            document.getElementById('errorRate').className = 'status-value ' + (data.requests.errorRate > 10 ? 'critical' : data.requests.errorRate > 5 ? 'warning' : '');
+            
+            document.getElementById('activeUsers').textContent = data.users.active || 0;
+            document.getElementById('uptime').textContent = formatUptime(data.system.uptime);
+
+            // Update charts
+            updateResponseTimeChart(data.requests.averageResponseTime);
+            updateRequestVolumeChart(data.requests.total);
+            updateErrorChart(data.errors.types);
+            updateResourceChart(data.system.memory, data.system.cpu);
+        }
+
+        // Update response time chart
+        function updateResponseTimeChart(responseTime) {
+            const chart = charts.responseTime;
+            const now = new Date().toLocaleTimeString();
+            
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(responseTime);
+            
+            // Keep only last 20 data points
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            
+            chart.update();
+        }
+
+        // Update request volume chart
+        function updateRequestVolumeChart(totalRequests) {
+            const chart = charts.requestVolume;
+            const now = new Date().toLocaleTimeString();
+            
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(totalRequests);
+            
+            // Keep only last 10 data points
+            if (chart.data.labels.length > 10) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            
+            chart.update();
+        }
+
+        // Update error chart
+        function updateErrorChart(errorTypes) {
+            const chart = charts.errors;
+            chart.data.labels = Object.keys(errorTypes);
+            chart.data.datasets[0].data = Object.values(errorTypes);
+            chart.update();
+        }
+
+        // Update resource chart
+        function updateResourceChart(memory, cpu) {
+            const chart = charts.resources;
+            const now = new Date().toLocaleTimeString();
+            
+            const memoryUsage = memory.heapUsed ? (memory.heapUsed / memory.heapTotal * 100).toFixed(1) : 0;
+            const cpuUsage = Math.random() * 100; // Placeholder - implement actual CPU monitoring
+            
+            chart.data.labels.push(now);
+            chart.data.datasets[0].data.push(memoryUsage);
+            chart.data.datasets[1].data.push(cpuUsage);
+            
+            // Keep only last 20 data points
+            if (chart.data.labels.length > 20) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+                chart.data.datasets[1].data.shift();
+            }
+            
+            chart.update();
+        }
+
+        // Add alert to alerts list
+        function addAlert(alert) {
+            const alertsList = document.getElementById('alertsList');
+            const alertElement = document.createElement('div');
+            alertElement.className = `alert-item ${alert.severity}`;
+            alertElement.innerHTML = `
+                <div class="alert-time">${new Date(alert.timestamp).toLocaleString()}</div>
+                <div class="alert-message">${alert.message}</div>
+            `;
+            
+            alertsList.insertBefore(alertElement, alertsList.firstChild);
+            
+            // Keep only last 10 alerts
+            while (alertsList.children.length > 10) {
+                alertsList.removeChild(alertsList.lastChild);
+            }
+        }
+
+        // Add log entry
+        function addLogEntry(logText) {
+            const logsList = document.getElementById('logsList');
+            const logElement = document.createElement('div');
+            logElement.className = 'log-entry';
+            logElement.textContent = logText;
+            
+            logsList.insertBefore(logElement, logsList.firstChild);
+            
+            // Keep only last 50 log entries
+            while (logsList.children.length > 50) {
+                logsList.removeChild(logsList.lastChild);
+            }
+        }
+
+        // Format uptime
+        function formatUptime(seconds) {
+            const hours = Math.floor(seconds / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${hours}h ${minutes}m`;
+        }
+
+        // Refresh data manually
+        function refreshData() {
+            loadInitialData();
+        }
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>

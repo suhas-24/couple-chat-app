@@ -8,6 +8,7 @@ interface ChatContextType {
   messages: Message[];
   loading: boolean;
   hasMore: boolean;
+  unreadCount: number;
   setCurrentChat: (chat: Chat | null) => void;
   loadChats: () => Promise<void>;
   loadMessages: (chatId: string, page?: number) => Promise<void>;
@@ -25,6 +26,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasMore, setHasMore] = useState(true);
+  const [unreadCount, setUnreadCount] = useState(0);
   const { user } = useAuth();
 
   // Load user's chats
@@ -36,6 +38,11 @@ export function ChatProvider({ children }: { children: ReactNode }) {
       const response = await api.chat.getUserChats();
       if (response.success) {
         setChats(response.chats);
+        // Calculate unread count
+        const unread = response.chats.reduce((count, chat) => {
+          return count + (chat.unreadCount || 0);
+        }, 0);
+        setUnreadCount(unread);
       }
     } catch (error) {
       console.error('Error loading chats:', error);
@@ -106,7 +113,10 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     
     try {
       setLoading(true);
-      const response = await api.chat.uploadCSV(currentChat._id, file);
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('chatId', currentChat._id);
+      const response = await api.chat.uploadCsv(formData);
       
       if (response.success) {
         // Reload messages to show imported ones
@@ -157,6 +167,7 @@ export function ChatProvider({ children }: { children: ReactNode }) {
     messages,
     loading,
     hasMore,
+    unreadCount,
     setCurrentChat,
     loadChats,
     loadMessages,

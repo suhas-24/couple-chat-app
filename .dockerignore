@@ -1,0 +1,81 @@
+# Docker ignore file for Couple Chat App
+# Prevents unnecessary files from being included in Docker builds
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Next.js
+.next/
+out/
+dist/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Logs
+logs/
+*.log
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# Test files
+*.test.js
+*.spec.js
+__tests__/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Docker
+Dockerfile
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+*.md
+docs/
+
+# Temporary files
+tmp/
+temp/
+
+# Build artifacts
+build/
+*.tgz
+*.tar.gz
+
+# Backend specific
+backend/uploads/
+backend/logs/
+backend/coverage/
+
+# Frontend specific
+.next/
+out/
+build/

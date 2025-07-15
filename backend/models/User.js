@@ -93,6 +93,42 @@ const userSchema = new mongoose.Schema({
       allowAnalytics: {
         type: Boolean,
         default: true
+      },
+      allowAIFeatures: {
+        type: Boolean,
+        default: true
+      },
+      allowDataCollection: {
+        type: Boolean,
+        default: true
+      },
+      allowPersonalization: {
+        type: Boolean,
+        default: true
+      },
+      shareUsageData: {
+        type: Boolean,
+        default: false
+      }
+    },
+    security: {
+      sessionTimeoutMinutes: {
+        type: Number,
+        default: 60,
+        min: 5,
+        max: 1440
+      },
+      sessionTimeoutUpdatedAt: {
+        type: Date,
+        default: Date.now
+      },
+      twoFactorEnabled: {
+        type: Boolean,
+        default: false
+      },
+      lastPasswordChange: {
+        type: Date,
+        default: Date.now
       }
     }
   },
@@ -144,7 +180,11 @@ const userSchema = new mongoose.Schema({
     expiresAt: Date,
     userAgent: String,
     ipAddress: String
-  }]
+  }],
+  tokenVersion: {
+    type: Number,
+    default: 0
+  }
 }, {
   timestamps: true
 });

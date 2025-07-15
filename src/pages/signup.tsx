@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuth } from '@/context/AuthContext';
-import { Heart, Mail, Lock, User } from 'lucide-react';
+import { Heart, Mail, Lock, User, MessageSquare } from 'lucide-react';
 
 export default function SignupPage() {
   const [username, setUsername] = useState('');
@@ -27,7 +27,12 @@ export default function SignupPage() {
 
     try {
       await signup(username, email, password);
-      router.push('/chat');
+      // Redirect is handled in AuthContext, but add fallback
+      setTimeout(() => {
+        if (router.pathname !== '/chat') {
+          router.push('/chat');
+        }
+      }, 1000);
     } catch (err: any) {
       setError(err.message || 'Failed to sign up');
     } finally {
@@ -36,118 +41,141 @@ export default function SignupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-dark-bg flex items-center justify-center px-4">
-      <div className="w-full max-w-md">
-        {/* Logo and Title */}
-        <div className="text-center mb-8">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center">
-              <Heart className="w-8 h-8 text-white" fill="white" />
-            </div>
-          </div>
-          <h1 className="text-3xl font-bold text-text-primary mb-2">Create Account</h1>
-          <p className="text-text-secondary">Join LoveChat to connect with your partner</p>
+    <div className="min-h-screen relative" style={{ backgroundColor: '#F3F0E8' }}>
+      {/* TropicTalk Header */}
+      <header className="flex items-center justify-between whitespace-nowrap border-b-2 border-dashed border-[var(--brand-accent)] px-10 py-4 bg-paper">
+        <div className="flex items-center gap-4 text-[var(--brand-primary)]">
+          <MessageSquare className="h-8 w-8 text-[var(--brand-primary)]" />
+          <h1 className="text-[var(--brand-primary)] text-2xl font-bold tracking-wider font-typewriter">
+            TropicTalk
+          </h1>
         </div>
+        
+        <nav className="flex items-center gap-8">
+          <Link href="/login" className="text-[var(--brand-primary)] font-semibold hover:text-[var(--brand-text-dark)] transition-colors duration-300 text-lg">
+            Login
+          </Link>
+          <span className="text-[var(--brand-text-dark)] font-bold border-b-2 border-[var(--brand-primary)] pb-1 text-lg">
+            Sign Up
+          </span>
+        </nav>
+      </header>
 
-        {/* Signup Form */}
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div>
-            <label htmlFor="username" className="block text-sm font-medium text-text-primary mb-2">
-              Username
-            </label>
-            <div className="relative">
-              <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-secondary" />
-              <input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
-                placeholder="Choose a username"
-                required
-              />
-            </div>
+      {/* Main Content */}
+      <main className="flex flex-1 justify-center py-12 px-4 sm:px-6 lg:px-8">
+        <div className="w-full max-w-2xl">
+          <div className="text-center mb-10">
+            <h2 className="text-4xl font-bold text-[var(--brand-text-dark)] tracking-tight font-typewriter">
+              Join TropicTalk
+            </h2>
+            <p className="mt-3 text-lg text-[var(--brand-primary)] font-typewriter">
+              Start your beautiful conversation journey with your loved one.
+            </p>
           </div>
 
-          <div>
-            <label htmlFor="email" className="block text-sm font-medium text-text-primary mb-2">
-              Email
-            </label>
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-secondary" />
-              <input
-                id="email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
-                placeholder="Enter your email"
-                required
-              />
+          <div className="bg-paper shadow-lg rounded-xl p-8 border-2 border-[var(--brand-accent)]">
+
+            {/* Signup Form */}
+            <form onSubmit={handleSubmit} className="space-y-6">
+              <div>
+                <label htmlFor="username" className="block text-sm font-medium text-[var(--brand-text-dark)] mb-2 font-typewriter">
+                  Username
+                </label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[var(--brand-accent)]" />
+                  <input
+                    id="username"
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-white/50 border-2 border-dashed border-[var(--brand-accent)] rounded-lg text-[var(--brand-text-dark)] placeholder-[var(--brand-accent)] focus:outline-none focus:border-[var(--brand-primary)] transition font-typewriter"
+                    placeholder="Choose a username"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="email" className="block text-sm font-medium text-[var(--brand-text-dark)] mb-2 font-typewriter">
+                  Email
+                </label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[var(--brand-accent)]" />
+                  <input
+                    id="email"
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-white/50 border-2 border-dashed border-[var(--brand-accent)] rounded-lg text-[var(--brand-text-dark)] placeholder-[var(--brand-accent)] focus:outline-none focus:border-[var(--brand-primary)] transition font-typewriter"
+                    placeholder="Enter your email"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="password" className="block text-sm font-medium text-[var(--brand-text-dark)] mb-2 font-typewriter">
+                  Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[var(--brand-accent)]" />
+                  <input
+                    id="password"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-white/50 border-2 border-dashed border-[var(--brand-accent)] rounded-lg text-[var(--brand-text-dark)] placeholder-[var(--brand-accent)] focus:outline-none focus:border-[var(--brand-primary)] transition font-typewriter"
+                    placeholder="Create a password"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="confirmPassword" className="block text-sm font-medium text-[var(--brand-text-dark)] mb-2 font-typewriter">
+                  Confirm Password
+                </label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-[var(--brand-accent)]" />
+                  <input
+                    id="confirmPassword"
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full pl-10 pr-4 py-3 bg-white/50 border-2 border-dashed border-[var(--brand-accent)] rounded-lg text-[var(--brand-text-dark)] placeholder-[var(--brand-accent)] focus:outline-none focus:border-[var(--brand-primary)] transition font-typewriter"
+                    placeholder="Confirm your password"
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                  <p className="text-sm text-red-400 font-typewriter">{error}</p>
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={loading}
+                className="stamp-button w-full py-3 text-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? 'Creating account...' : 'Join TropicTalk'}
+              </button>
+            </form>
+
+            {/* Footer */}
+            <div className="mt-8 text-center">
+              <p className="text-[var(--brand-primary)] font-typewriter">
+                Already have an account?{' '}
+                <Link href="/login" className="text-[var(--brand-text-dark)] hover:text-[var(--brand-primary)] font-semibold transition underline">
+                  Sign in
+                </Link>
+              </p>
             </div>
           </div>
-
-          <div>
-            <label htmlFor="password" className="block text-sm font-medium text-text-primary mb-2">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-secondary" />
-              <input
-                id="password"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
-                placeholder="Create a password"
-                required
-              />
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="confirmPassword" className="block text-sm font-medium text-text-primary mb-2">
-              Confirm Password
-            </label>
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-text-secondary" />
-              <input
-                id="confirmPassword"
-                type="password"
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-input-bg border border-border-color rounded-lg text-text-primary placeholder-text-secondary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition"
-                placeholder="Confirm your password"
-                required
-              />
-            </div>
-          </div>
-
-          {error && (
-            <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-              <p className="text-sm text-red-400">{error}</p>
-            </div>
-          )}
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full py-3 bg-primary hover:bg-primary/90 text-white font-semibold rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? 'Creating account...' : 'Sign Up'}
-          </button>
-        </form>
-
-        {/* Footer */}
-        <div className="mt-8 text-center">
-          <p className="text-text-secondary">
-            Already have an account?{' '}
-            <Link href="/login" className="text-primary hover:text-primary/80 font-semibold transition">
-              Sign in
-            </Link>
-          </p>
         </div>
-      </div>
+      </main>
     </div>
   );
 }

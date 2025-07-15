@@ -2,13 +2,29 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
+  
+  // Enhanced image optimization
   images: {
     domains: ['lh3.googleusercontent.com', 'avatars.githubusercontent.com'],
     formats: ['image/webp', 'image/avif'],
+    minimumCacheTTL: 60,
+    dangerouslyAllowSVG: true,
+    contentSecurityPolicy: "default-src 'self'; script-src 'none'; sandbox;",
   },
+  
+  // Bundle optimization
+  compiler: {
+    removeConsole: process.env.NODE_ENV === 'production',
+  },
+  
+  // Performance optimizations
+  poweredByHeader: false,
+  compress: true,
+  
   env: {
     CUSTOM_KEY: process.env.CUSTOM_KEY,
   },
+  
   async headers() {
     return [
       {
@@ -30,12 +46,73 @@ const nextConfig = {
             key: 'Cross-Origin-Opener-Policy',
             value: 'same-origin-allow-popups',
           },
+          // Cache static assets
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/api/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'no-cache, no-store, must-revalidate',
+          },
+        ],
+      },
+      {
+        source: '/_next/static/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+        ],
+      },
+      {
+        source: '/fonts/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=31536000, immutable',
+          },
+          {
+            key: 'Access-Control-Allow-Origin',
+            value: '*',
+          },
         ],
       },
     ];
   },
+
+  async redirects() {
+    return [
+      {
+        source: '/fonts/tamil-font.woff2',
+        destination: '/fonts/tamil-font.css',
+        permanent: false,
+      },
+    ];
+  },
+
+  // Add custom rewrites to handle webpack hot-update 404s
+  async rewrites() {
+    return {
+      fallback: [
+        {
+          source: '/_next/static/webpack/:path*.hot-update.json',
+          destination: '/api/webpack-fallback',
+        },
+      ],
+    };
+  },
+  
   experimental: {
     serverComponentsExternalPackages: ['mongoose'],
+    esmExternals: true,
+    swcMinify: true,
   },
 }
 

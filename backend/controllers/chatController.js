@@ -232,35 +232,49 @@ exports.uploadCsvChat = async (req, res) => {
       return res.status(403).json({ error: 'Not authorized to upload to this chat' });
     }
 
-    // Process CSV file with enhanced service
-    const processingOptions = {
-      format,
-      batchSize: 1000,
-      encoding: req.body.encoding || 'utf8'
-    };
-
-    // Process CSV with progress tracking
-    const csvResult = await csvService.processCSVFile(
-      req.file.path,
-      processingOptions,
-      (progress) => {
-        // Progress callback - could be used for real-time updates via WebSocket
-        console.log(`CSV Processing: ${progress.percentage}% (${progress.processed}/${progress.total})`);
+    // Handle encrypted file decryption
+    let tempFilePath = null;
+    let actualFilePath = req.file.path;
+    
+    try {
+      if (req.decryptUploadedFile) {
+        // File is encrypted, decrypt it for processing
+        tempFilePath = await csvService.handleEncryptedFile(req.file.path, req.decryptUploadedFile);
+        actualFilePath = tempFilePath;
       }
-    );
 
-    if (!csvResult.success) {
-      // Clean up uploaded file
-      if (req.cleanupUploadedFile) {
-        await req.cleanupUploadedFile();
-      } else {
-        fs.unlinkSync(req.file.path);
+      // Process CSV file with enhanced service
+      const processingOptions = {
+        format,
+        batchSize: 1000,
+        encoding: req.body.encoding || 'utf8'
+      };
+
+      // Process CSV with progress tracking
+      const csvResult = await csvService.processCSVFile(
+        actualFilePath,
+        processingOptions,
+        (progress) => {
+          // Progress callback - could be used for real-time updates via WebSocket
+          console.log(`CSV Processing: ${progress.percentage}% (${progress.processed}/${progress.total})`);
+        }
+      );
+
+      if (!csvResult.success) {
+        // Clean up files
+        if (tempFilePath) {
+          await csvService.cleanupTempFile(tempFilePath);
+        }
+        if (req.cleanupUploadedFile) {
+          await req.cleanupUploadedFile();
+        } else {
+          fs.unlinkSync(req.file.path);
+        }
+        return res.status(400).json({
+          error: 'CSV processing failed',
+          details: csvResult.errors
+        });
       }
-      return res.status(400).json({
-        error: 'CSV processing failed',
-        details: csvResult.errors
-      });
-    }
 
     // Map sender names to user IDs
     const participants = await User.find({ _id: { $in: chat.participants } });
@@ -324,40 +338,51 @@ exports.uploadCsvChat = async (req, res) => {
       }
     );
 
-    // Clean up uploaded file
-    if (req.cleanupUploadedFile) {
-      await req.cleanupUploadedFile();
-    } else {
-      fs.unlinkSync(req.file.path);
-    }
-
-    if (!batchResult.success) {
-      return res.status(500).json({
-        error: 'Batch processing failed',
-        details: batchResult.error,
-        rollbackInfo: batchResult.rollbackInfo
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      stats: {
-        messagesImported: batchResult.importedMessages,
-        messagesSkipped: batchResult.skippedMessages,
-        totalProcessed: batchResult.processedMessages,
-        dateRange: dateRange,
-        senderBreakdown: senderCounts,
-        format: format,
-        errors: batchResult.errors,
-        successRate: csvResult.stats.successRate,
-        batchInfo: {
-          totalBatches: batchResult.batches.length,
-          successfulBatches: batchResult.batches.filter(b => b.errors.length === 0).length,
-          failedBatches: batchResult.batches.filter(b => b.errors.length > 0).length
-        },
-        rollbackInfo: batchResult.rollbackInfo
+      // Clean up files
+      if (tempFilePath) {
+        await csvService.cleanupTempFile(tempFilePath);
       }
-    });
+      if (req.cleanupUploadedFile) {
+        await req.cleanupUploadedFile();
+      } else {
+        fs.unlinkSync(req.file.path);
+      }
+
+      if (!batchResult.success) {
+        return res.status(500).json({
+          error: 'Batch processing failed',
+          details: batchResult.error,
+          rollbackInfo: batchResult.rollbackInfo
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        stats: {
+          messagesImported: batchResult.importedMessages,
+          messagesSkipped: batchResult.skippedMessages,
+          totalProcessed: batchResult.processedMessages,
+          dateRange: dateRange,
+          senderBreakdown: senderCounts,
+          format: format,
+          errors: batchResult.errors,
+          successRate: csvResult.stats.successRate,
+          batchInfo: {
+            totalBatches: batchResult.batches.length,
+            successfulBatches: batchResult.batches.filter(b => b.errors.length === 0).length,
+            failedBatches: batchResult.batches.filter(b => b.errors.length > 0).length
+          },
+          rollbackInfo: batchResult.rollbackInfo
+        }
+      });
+
+    } catch (processingError) {
+      // Clean up files on processing error
+      if (tempFilePath) {
+        await csvService.cleanupTempFile(tempFilePath);
+      }
+      throw processingError;
+    }
   } catch (error) {
     console.error('Error uploading CSV:', error);
     

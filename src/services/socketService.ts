@@ -1,5 +1,4 @@
 import { io, Socket } from 'socket.io-client';
-import Cookies from 'js-cookie';
 
 interface Message {
   _id: string;
@@ -64,31 +63,23 @@ class SocketService {
   private errorCallback?: (error: string) => void;
 
   constructor() {
-    this.initializeSocket();
+    // Don't initialize socket automatically - wait for authentication
   }
 
   private initializeSocket() {
-    const token = Cookies.get('auth-token');
-    
-    if (!token) {
-      console.error('No auth token found, cannot connect to socket');
-      this.updateConnectionState({ connected: false, reconnecting: false, error: 'No auth token' });
-      return;
-    }
-
     const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
     
+    // Let the server handle authentication via cookies
     this.socket = io(socketUrl, {
-      auth: { token },
+      withCredentials: true, // This ensures cookies are sent with the request
       transports: ['websocket', 'polling'],
-      autoConnect: true,
+      autoConnect: false, // Don't auto-connect, wait for explicit connect call
       reconnection: false, // We'll handle reconnection manually
       timeout: 20000,
       forceNew: true
     });
 
     this.setupEventHandlers();
-    this.startHeartbeat();
   }
 
   private setupEventHandlers() {
@@ -232,7 +223,7 @@ class SocketService {
   connect() {
     if (this.socket && !this.socket.connected) {
       this.socket.connect();
-    } else {
+    } else if (!this.socket) {
       this.initializeSocket();
     }
   }

@@ -1,0 +1,21 @@
+/* Tamil Font Fallback Configuration */
+@font-face {
+    font-family: 'Tamil-Font';
+    src: url('https://fonts.gstatic.com/s/notosanstamil/v27/ieVc2YdFI3GCY6SyQy1KfStzYKZgzN2cQ1ZwaRrZ.woff2') format('woff2');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+
+@font-face {
+    font-family: 'Tamil-Font';
+    src: url('https://fonts.gstatic.com/s/notosanstamil/v27/ieVb2YdFI3GCY6SyQy1KfStzYKZgzN2cQ1ZwaRrZkiKy.woff2') format('woff2');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* Fallback for local tamil-font.woff2 requests */
+.tamil-font-fallback {
+    font-family: 'Tamil-Font', 'Noto Sans Tamil', 'Mukti', 'Latha', 'Vijaya', 'Tamil Sangam MN', 'InaiMathi', system-ui, sans-serif;
+}

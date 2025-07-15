@@ -225,7 +225,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full bg-gradient-to-br from-pink-50 to-purple-50 relative overflow-hidden">
+    <div 
+      className="flex flex-col h-full bg-gradient-to-br from-pink-50 to-purple-50 relative overflow-hidden"
+      role="main"
+      aria-label={`Chat with ${partnerName}`}
+    >
       {/* Decorative hearts background */}
       <div className="absolute inset-0 pointer-events-none overflow-hidden">
         <div className="absolute top-10 left-10 text-pink-200 opacity-20">
@@ -304,7 +308,13 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       </div>
 
       {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div 
+        className="flex-1 overflow-y-auto px-4 py-6 space-y-4"
+        role="log"
+        aria-label="Chat messages"
+        aria-live="polite"
+        aria-atomic="false"
+      >
         {Object.entries(messageGroups).map(([dateKey, dateMessages]) => (
           <div key={dateKey}>
             {/* Date Separator */}
@@ -447,8 +457,12 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
       <div className="bg-white/80 backdrop-blur-sm border-t border-pink-200 px-6 py-4">
         <div className="flex items-center space-x-3">
           {/* Emoji Button */}
-          <button className="p-2 text-gray-500 hover:text-pink-500 hover:bg-pink-50 rounded-full transition-colors">
-            <span className="text-xl">😊</span>
+          <button 
+            className="p-2 text-gray-500 hover:text-pink-500 hover:bg-pink-50 rounded-full transition-colors"
+            aria-label="Add emoji"
+            type="button"
+          >
+            <span className="text-xl" aria-hidden="true">😊</span>
           </button>
 
           {/* Message Input */}
@@ -461,6 +475,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
               onKeyPress={handleKeyPress}
               placeholder={`Message ${partnerName}... 💭`}
               disabled={!connectionState.connected}
+              aria-label={`Type a message to ${partnerName}`}
+              aria-describedby="connection-status"
               className={`w-full px-4 py-3 bg-gray-50 border border-pink-200 rounded-full focus:outline-none focus:ring-2 focus:ring-pink-300 focus:border-transparent transition-all placeholder-gray-500 ${
                 !connectionState.connected ? 'opacity-50 cursor-not-allowed' : ''
               }`}
@@ -471,6 +487,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({
           <button
             onClick={handleSend}
             disabled={!inputMessage.trim()}
+            aria-label={`Send message to ${partnerName}`}
+            type="button"
             className={`p-3 rounded-full transition-all ${
               inputMessage.trim()
                 ? 'bg-gradient-to-r from-pink-500 to-rose-500 text-white shadow-lg hover:shadow-xl hover:scale-105'

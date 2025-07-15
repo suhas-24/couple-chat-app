@@ -3,6 +3,7 @@ const { body } = require('express-validator');
 const authController = require('../controllers/authController');
 const authMiddleware = require('../middleware/auth');
 const { authLimiter, passwordResetLimiter, emailVerificationLimiter } = require('../middleware/rateLimiter');
+const { validate } = require('../middleware/validation');
 
 const router = express.Router();
 
@@ -129,13 +130,13 @@ const verifyEmailValidation = [
 
 // Public routes (no authentication required)
 // POST /api/auth/signup - Register a new user
-router.post('/signup', signupValidation, authController.signup);
+router.post('/signup', validate.signup, authController.signup);
 
 // POST /api/auth/login - Login user
-router.post('/login', loginValidation, authController.login);
+router.post('/login', validate.login, authController.login);
 
 // POST /api/auth/google - Google OAuth login
-router.post('/google', authController.googleLogin);
+router.post('/google', validate.googleAuth, authController.googleLogin);
 
 // POST /api/auth/request-password-reset - Request password reset
 router.post('/request-password-reset', passwordResetLimiter, requestPasswordResetValidation, authController.requestPasswordReset);
@@ -147,14 +148,14 @@ router.post('/reset-password', passwordResetLimiter, resetPasswordValidation, au
 router.post('/verify-email', emailVerificationLimiter, verifyEmailValidation, authController.verifyEmail);
 
 // Protected routes (authentication required)
-// GET /api/auth/profile - Get current user profile
-router.get('/profile', authMiddleware, authController.getProfile);
+// GET /api/auth/me - Get current user profile (changed from /profile to /me)
+router.get('/me', authMiddleware, authController.getProfile);
 
 // GET /api/auth/user-by-email/:email - Find user by email (protected)
 router.get('/user-by-email/:email', authMiddleware, authController.getUserByEmail);
 
 // PUT /api/auth/profile - Update user profile
-router.put('/profile', authMiddleware, updateProfileValidation, authController.updateProfile);
+router.put('/profile', authMiddleware, validate.updateProfile, authController.updateProfile);
 
 // PUT /api/auth/change-password - Change user password
 router.put('/change-password', authMiddleware, changePasswordValidation, authController.changePassword);
@@ -167,6 +168,45 @@ router.post('/resend-verification', authMiddleware, emailVerificationLimiter, au
 
 // DELETE /api/auth/account - Delete user account
 router.delete('/account', authMiddleware, deleteAccountValidation, authController.deleteAccount);
+
+// Privacy and Data Management Routes
+
+// GET /api/auth/privacy-settings - Get user privacy settings
+router.get('/privacy-settings', authMiddleware, authController.getPrivacySettings);
+
+// PUT /api/auth/privacy-settings - Update user privacy settings
+router.put('/privacy-settings', authMiddleware, [
+  body('allowAnalytics').optional().isBoolean().withMessage('allowAnalytics must be a boolean'),
+  body('allowAIFeatures').optional().isBoolean().withMessage('allowAIFeatures must be a boolean'),
+  body('showOnlineStatus').optional().isBoolean().withMessage('showOnlineStatus must be a boolean'),
+  body('allowDataCollection').optional().isBoolean().withMessage('allowDataCollection must be a boolean'),
+  body('allowPersonalization').optional().isBoolean().withMessage('allowPersonalization must be a boolean'),
+  body('shareUsageData').optional().isBoolean().withMessage('shareUsageData must be a boolean')
+], authController.updatePrivacySettings);
+
+// GET /api/auth/export-data - Export user data (GDPR compliance)
+router.get('/export-data', authMiddleware, authController.exportUserData);
+
+// POST /api/auth/delete-data-gdpr - Complete data deletion (GDPR compliance)
+router.post('/delete-data-gdpr', authMiddleware, [
+  body('password').optional().isLength({ min: 6 }).withMessage('Password must be at least 6 characters long'),
+  body('keepAnonymized').optional().isBoolean().withMessage('keepAnonymized must be a boolean'),
+  body('reason').optional().isString().withMessage('reason must be a string')
+], authController.deleteUserDataGDPR);
+
+// GET /api/auth/deletion-status/:deletionId - Get data deletion status
+router.get('/deletion-status/:deletionId', authMiddleware, authController.getDeletionStatus);
+
+// PUT /api/auth/session-timeout - Update session timeout settings
+router.put('/session-timeout', authMiddleware, [
+  body('timeoutMinutes').isInt({ min: 5, max: 1440 }).withMessage('Timeout must be between 5 and 1440 minutes')
+], authController.updateSessionTimeout);
+
+// GET /api/auth/security-events - Get user security events
+router.get('/security-events', authMiddleware, authController.getSecurityEvents);
+
+// POST /api/auth/revoke-all-sessions - Revoke all user sessions
+router.post('/revoke-all-sessions', authMiddleware, authController.revokeAllSessions);
 
 // Health check for auth routes
 router.get('/health', (req, res) => {

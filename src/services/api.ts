@@ -21,6 +21,7 @@ export interface Chat {
   chatName: string;
   isActive: boolean;
   lastMessageAt: string;
+  unreadCount?: number;
   metadata: {
     anniversaryDate?: string;
     relationshipStartDate?: string;
@@ -77,26 +78,90 @@ const getAuthHeaders = (): HeadersInit => {
   };
 };
 
-// Helper function for API calls with cookie support
+// Enhanced API call function with retry logic and error handling
 async function apiCall<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryConfig: { maxRetries?: number; baseDelay?: number } = {}
 ): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    credentials: 'include', // Include cookies
-    headers: {
-      ...getAuthHeaders(),
-      ...options.headers
-    }
-  });
+  const { maxRetries = 3, baseDelay = 1000 } = retryConfig;
+  let lastError: Error;
 
-  if (!response.ok) {
-    const error = await response.json().catch(() => ({ error: 'Network error' }));
-    throw new Error(error.error || 'Something went wrong');
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+        ...options,
+        credentials: 'include', // Include cookies
+        headers: {
+          ...getAuthHeaders(),
+          ...options.headers
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Network error' }));
+        const error = new Error(errorData.error || 'Something went wrong');
+        (error as any).status = response.status;
+        (error as any).statusText = response.statusText;
+        
+        // Don't retry client errors (4xx), only server errors (5xx) and network errors
+        if (response.status < 500) {
+          throw error;
+        }
+        
+        lastError = error;
+        
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        // Wait before retrying with exponential backoff
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      return response.json();
+    } catch (error) {
+      lastError = error as Error;
+      
+      // Don't retry if it's not a network error
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        // This is likely a network error, retry
+        if (attempt === maxRetries) {
+          throw error;
+        }
+        
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+      
+      // For other errors, don't retry
+      throw error;
+    }
   }
 
-  return response.json();
+  throw lastError!;
+}
+
+// Enhanced API call with offline queue support
+async function apiCallWithQueue<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  queueData?: { type: string; data: any }
+): Promise<T> {
+  try {
+    return await apiCall<T>(endpoint, options);
+  } catch (error) {
+    // If offline and queue data provided, add to offline queue
+    if (!navigator.onLine && queueData) {
+      // This would integrate with the offline queue hook
+      console.log('Adding to offline queue:', queueData);
+      throw new Error('Request queued for when you\'re back online');
+    }
+    throw error;
+  }
 }
 
 // Auth API
@@ -198,20 +263,10 @@ export const chatAPI = {
     });
   },
 
-  uploadCSV: async (
-    chatId: string,
-    file: File
-  ): Promise<{ success: boolean; stats: any }> => {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('chatId', chatId);
-
-    const token = localStorage.getItem('token');
+  uploadCsv: async (formData: FormData): Promise<{ success: boolean; stats: any }> => {
     const response = await fetch(`${API_BASE_URL}/chat/upload-csv`, {
       method: 'POST',
-      headers: {
-        ...(token && { Authorization: `Bearer ${token}` })
-      },
+      credentials: 'include', // Include cookies for authentication
       body: formData
     });
 
@@ -233,6 +288,8 @@ export const chatAPI = {
     });
   }
 };
+
+
 
 // Analytics API
 export const analyticsAPI = {
@@ -451,10 +508,20 @@ export const aiAPI = {
     answer: string;
     metadata?: any;
   }> => {
-    return apiCall(`/ai/chat/${chatId}/ask`, {
-      method: 'POST',
-      body: JSON.stringify({ question })
-    });
+    try {
+      const response = await apiCall(`/ai/chat/${chatId}/ask`, {
+        method: 'POST',
+        body: JSON.stringify({ question })
+      });
+      return response;
+    } catch (error: any) {
+      console.error('AI API Error:', error);
+      return {
+        success: false,
+        answer: "I'm having trouble connecting to the AI service right now. Please try again in a moment! 🌴",
+        metadata: { error: error.message }
+      };
+    }
   },
 
   /**

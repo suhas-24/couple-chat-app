@@ -5,6 +5,9 @@ const { validationResult } = require('express-validator');
 const { OAuth2Client } = require('google-auth-library');
 const EncryptionService = require('../services/encryptionService');
 const emailService = require('../services/emailService');
+const dataManagementService = require('../services/dataManagementService');
+const auditLogger = require('../services/auditLogger');
+const { AppError, catchAsync } = require('../middleware/errorHandler');
 
 // Initialize Google OAuth client
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -40,587 +43,361 @@ const clearTokenCookie = (res) => {
 };
 
 // Register User
-exports.signup = async (req, res) => {
-  try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: errors.array()[0].msg,
-        code: 'VALIDATION_ERROR',
-        timestamp: new Date().toISOString()
-      });
-    }
+exports.signup = catchAsync(async (req, res, next) => {
+  const { name, email, password } = req.body;
 
-    const { name, email, password } = req.body;
-
-    // Check if user already exists
-    const existingUser = await User.findOne({ 
-      email: email.toLowerCase(),
-      isActive: true 
-    });
-    
-    if (existingUser) {
-      return res.status(409).json({
-        success: false,
-        error: 'User already exists with this email',
-        code: 'USER_EXISTS',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Create new user
-    const newUser = new User({
-      name,
-      email: email.toLowerCase(),
-      password,
-      authProvider: 'local'
-    });
-
-    // Generate email verification token
-    const verificationToken = newUser.createEmailVerificationToken();
-    
-    // Save user to database
-    await newUser.save();
-
-    // Send email verification (don't block registration if email fails)
-    try {
-      await emailService.sendEmailVerificationEmail(newUser.email, verificationToken, newUser.name);
-    } catch (emailError) {
-      console.error('Failed to send verification email:', emailError);
-      // Continue with registration even if email fails
-    }
-
-    // Generate JWT token
-    const token = generateToken(newUser._id);
-
-    // Set secure cookie
-    setTokenCookie(res, token);
-
-    // Log successful registration
-    console.log(`New user registered: ${newUser.email} at ${new Date().toISOString()}`);
-
-    // Return user data (no token in response body)
-    res.status(201).json({
-      success: true,
-      message: 'Registration successful. Please check your email to verify your account.',
-      user: {
-        _id: newUser._id,
-        name: newUser.name,
-        email: newUser.email,
-        isEmailVerified: newUser.isEmailVerified,
-        createdAt: newUser.createdAt
-      }
-    });
-
-  } catch (error) {
-    console.error('Signup error:', error);
-    
-    // Handle duplicate key errors
-    if (error.code === 11000) {
-      const field = Object.keys(error.keyValue)[0];
-      return res.status(409).json({
-        success: false,
-        error: `${field.charAt(0).toUpperCase() + field.slice(1)} already exists`,
-        code: 'DUPLICATE_KEY',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Handle validation errors
-    if (error.name === 'ValidationError') {
-      const validationErrors = Object.values(error.errors).map(err => err.message);
-      return res.status(400).json({
-        success: false,
-        error: validationErrors[0],
-        code: 'VALIDATION_ERROR',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    res.status(500).json({
-      success: false,
-      error: 'Server error during registration',
-      code: 'INTERNAL_ERROR',
-      timestamp: new Date().toISOString(),
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  // Check if user already exists
+  const existingUser = await User.findOne({ 
+    email: email.toLowerCase(),
+    isActive: true 
+  });
+  
+  if (existingUser) {
+    return next(new AppError('User already exists with this email', 409, 'USER_EXISTS'));
   }
-};
+
+  // Create new user
+  const newUser = new User({
+    name,
+    email: email.toLowerCase(),
+    password,
+    authProvider: 'local'
+  });
+
+  // Generate email verification token
+  const verificationToken = newUser.createEmailVerificationToken();
+  
+  // Save user to database
+  await newUser.save();
+
+  // Send email verification (don't block registration if email fails)
+  try {
+    await emailService.sendEmailVerificationEmail(newUser.email, verificationToken, newUser.name);
+  } catch (emailError) {
+    console.error('Failed to send verification email:', emailError);
+    // Continue with registration even if email fails
+  }
+
+  // Generate JWT token
+  const token = generateToken(newUser._id);
+
+  // Set secure cookie
+  setTokenCookie(res, token);
+
+  // Log successful registration
+  console.log(`New user registered: ${newUser.email} at ${new Date().toISOString()}`);
+
+  // Return user data (no token in response body)
+  res.status(201).json({
+    success: true,
+    message: 'Registration successful. Please check your email to verify your account.',
+    user: {
+      _id: newUser._id,
+      name: newUser.name,
+      email: newUser.email,
+      isEmailVerified: newUser.isEmailVerified,
+      createdAt: newUser.createdAt
+    }
+  });
+});
 
 // Login User
-exports.login = async (req, res) => {
-  try {
-    // Check for validation errors
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: errors.array()[0].msg,
-        code: 'VALIDATION_ERROR',
-        timestamp: new Date().toISOString()
-      });
-    }
+exports.login = catchAsync(async (req, res, next) => {
+  const { email, password } = req.body;
 
-    const { email, password } = req.body;
+  // Find user by email and ensure account is active
+  const user = await User.findOne({ 
+    email: email.toLowerCase(),
+    isActive: true 
+  });
 
-    // Find user by email and ensure account is active
-    const user = await User.findOne({ 
-      email: email.toLowerCase(),
-      isActive: true 
-    });
-
-    if (!user) {
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials',
-        code: 'INVALID_CREDENTIALS',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Check if account is locked
-    if (user.isLocked) {
-      return res.status(423).json({
-        success: false,
-        error: 'Account temporarily locked due to too many failed login attempts. Please try again later.',
-        code: 'ACCOUNT_LOCKED',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Check password
-    const isPasswordValid = await user.comparePassword(password);
-    if (!isPasswordValid) {
-      // Increment login attempts
-      await user.incLoginAttempts();
-      
-      return res.status(401).json({
-        success: false,
-        error: 'Invalid credentials',
-        code: 'INVALID_CREDENTIALS',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Reset login attempts on successful login
-    if (user.loginAttempts > 0) {
-      await user.resetLoginAttempts();
-    }
-
-    // Update last login time
-    user.lastLoginAt = new Date();
-    await user.save();
-
-    // Generate JWT token
-    const token = generateToken(user._id);
-
-    // Set secure cookie
-    setTokenCookie(res, token);
-
-    // Log successful login
-    console.log(`User logged in: ${user.email} at ${new Date().toISOString()}`);
-
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      user: {
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        isEmailVerified: user.isEmailVerified,
-        lastLoginAt: user.lastLoginAt,
-        createdAt: user.createdAt
-      }
-    });
-
-  } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Server error during login',
-      code: 'INTERNAL_ERROR',
-      timestamp: new Date().toISOString(),
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  if (!user) {
+    return next(new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS'));
   }
-};
+
+  // Check if account is locked
+  if (user.isLocked) {
+    return next(new AppError('Account temporarily locked due to too many failed login attempts. Please try again later.', 423, 'ACCOUNT_LOCKED'));
+  }
+
+  // Check password
+  const isPasswordValid = await user.comparePassword(password);
+  if (!isPasswordValid) {
+    // Increment login attempts
+    await user.incLoginAttempts();
+    return next(new AppError('Invalid credentials', 401, 'INVALID_CREDENTIALS'));
+  }
+
+  // Reset login attempts on successful login
+  if (user.loginAttempts > 0) {
+    await user.resetLoginAttempts();
+  }
+
+  // Update last login time
+  user.lastLoginAt = new Date();
+  await user.save();
+
+  // Generate JWT token
+  const token = generateToken(user._id);
+
+  // Set secure cookie
+  setTokenCookie(res, token);
+
+  // Log successful login
+  console.log(`User logged in: ${user.email} at ${new Date().toISOString()}`);
+
+  res.status(200).json({
+    success: true,
+    message: 'Login successful',
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      isEmailVerified: user.isEmailVerified,
+      lastLoginAt: user.lastLoginAt,
+      createdAt: user.createdAt
+    }
+  });
+});
 
 // Get Current User Profile
-exports.getProfile = async (req, res) => {
-  try {
-    const user = await User.findById(req.userId).select('-password');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
-      data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error fetching profile',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+exports.getProfile = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.userId).select('-password');
+  
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
   }
-};
 
-// Get User By Email
-exports.getUserByEmail = async (req, res) => {
-  try {
-    const { email } = req.params;
-    
-    const user = await User.findOne({ email: email.toLowerCase() }).select('-password');
-    
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    res.status(200).json({
-      success: true,
+  res.status(200).json({
+    success: true,
+    data: {
       user: {
         _id: user._id,
         name: user.name,
         email: user.email,
-        avatar: user.avatar
+        createdAt: user.createdAt
       }
-    });
+    }
+  });
+});
 
-  } catch (error) {
-    console.error('Get user by email error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error finding user',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+// Get User By Email
+exports.getUserByEmail = catchAsync(async (req, res, next) => {
+  const { email } = req.params;
+  
+  const user = await User.findOne({ email: email.toLowerCase() }).select('-password');
+  
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
   }
-};
+
+  res.status(200).json({
+    success: true,
+    user: {
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar
+    }
+  });
+});
 
 // Update User Profile
-exports.updateProfile = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
+exports.updateProfile = catchAsync(async (req, res, next) => {
+  const allowedUpdates = [
+    'profile.firstName',
+    'profile.lastName',
+    'profile.bio',
+    'profile.location',
+    'profile.dateOfBirth',
+    'preferences.language',
+    'preferences.notifications',
+    'preferences.privacy',
+    'coupleInfo.relationshipStartDate',
+    'coupleInfo.anniversaryDate',
+    'coupleInfo.coupleTheme'
+  ];
 
-    const allowedUpdates = [
-      'profile.firstName',
-      'profile.lastName',
-      'profile.bio',
-      'profile.location',
-      'profile.dateOfBirth',
-      'preferences.language',
-      'preferences.notifications',
-      'preferences.privacy',
-      'coupleInfo.relationshipStartDate',
-      'coupleInfo.anniversaryDate',
-      'coupleInfo.coupleTheme'
-    ];
-
-    const updates = {};
-    
-    // Extract nested updates safely
-    Object.keys(req.body).forEach(key => {
-      if (key.includes('.')) {
-        if (allowedUpdates.includes(key)) {
-          const [parent, child] = key.split('.');
-          if (!updates[parent]) updates[parent] = {};
-          updates[parent][child] = req.body[key];
-        }
-      } else if (allowedUpdates.some(field => field.startsWith(key))) {
-        updates[key] = req.body[key];
+  const updates = {};
+  
+  // Extract nested updates safely
+  Object.keys(req.body).forEach(key => {
+    if (key.includes('.')) {
+      if (allowedUpdates.includes(key)) {
+        const [parent, child] = key.split('.');
+        if (!updates[parent]) updates[parent] = {};
+        updates[parent][child] = req.body[key];
       }
-    });
-
-    const user = await User.findByIdAndUpdate(
-      req.userId, // Fixed from req.user.userId to req.userId for consistency
-      { $set: updates },
-      { new: true, runValidators: true }
-    );
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+    } else if (allowedUpdates.some(field => field.startsWith(key))) {
+      updates[key] = req.body[key];
     }
+  });
 
-    res.status(200).json({
-      success: true,
-      message: 'Profile updated successfully',
-      data: {
-        user: {
-          _id: user._id,
-          name: user.name,
-          email: user.email,
-          createdAt: user.createdAt
-        }
-      }
-    });
+  const user = await User.findByIdAndUpdate(
+    req.userId,
+    { $set: updates },
+    { new: true, runValidators: true }
+  );
 
-  } catch (error) {
-    console.error('Update profile error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error updating profile',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
   }
-};
+
+  res.status(200).json({
+    success: true,
+    message: 'Profile updated successfully',
+    data: {
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        createdAt: user.createdAt
+      }
+    }
+  });
+});
 
 // Change Password
-exports.changePassword = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Validation failed',
-        errors: errors.array()
-      });
-    }
+exports.changePassword = catchAsync(async (req, res, next) => {
+  const { currentPassword, newPassword } = req.body;
 
-    const { currentPassword, newPassword } = req.body;
-
-    const user = await User.findById(req.userId); // Fixed from req.user.userId to req.userId
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
-    }
-
-    // Verify current password
-    const isCurrentPasswordValid = await user.comparePassword(currentPassword);
-    if (!isCurrentPasswordValid) {
-      return res.status(400).json({
-        success: false,
-        message: 'Current password is incorrect'
-      });
-    }
-
-    // Update password
-    user.password = newPassword;
-    await user.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Password changed successfully'
-    });
-
-  } catch (error) {
-    console.error('Change password error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error changing password',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  const user = await User.findById(req.userId);
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
   }
-};
+
+  // Verify current password
+  const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+  if (!isCurrentPasswordValid) {
+    return next(new AppError('Current password is incorrect', 400, 'INVALID_PASSWORD'));
+  }
+
+  // Update password
+  user.password = newPassword;
+  await user.save();
+
+  res.status(200).json({
+    success: true,
+    message: 'Password changed successfully'
+  });
+});
 
 // Logout (Client-side implementation recommended)
-exports.logout = async (req, res) => {
-  try {
-    // Clear the auth cookie
-    clearTokenCookie(res);
-    
-    console.log(`User ${req.userId} logged out at ${new Date()}`);
-    
-    res.status(200).json({
-      success: true,
-      message: 'Logged out successfully'
-    });
-
-  } catch (error) {
-    console.error('Logout error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Server error during logout',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
-  }
-};
+exports.logout = catchAsync(async (req, res, next) => {
+  // Clear the auth cookie
+  clearTokenCookie(res);
+  
+  console.log(`User ${req.userId} logged out at ${new Date()}`);
+  
+  res.status(200).json({
+    success: true,
+    message: 'Logged out successfully'
+  });
+});
 
 // Delete Account
-exports.deleteAccount = async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: errors.array()[0].msg,
-        code: 'VALIDATION_ERROR',
-        timestamp: new Date().toISOString()
-      });
-    }
+exports.deleteAccount = catchAsync(async (req, res, next) => {
+  const { password } = req.body;
 
-    const { password } = req.body;
-
-    const user = await User.findById(req.userId);
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        error: 'User not found',
-        code: 'USER_NOT_FOUND',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // For Google OAuth users, skip password verification
-    if (user.authProvider === 'local') {
-      if (!password) {
-        return res.status(400).json({
-          success: false,
-          error: 'Password is required to delete account',
-          code: 'PASSWORD_REQUIRED',
-          timestamp: new Date().toISOString()
-        });
-      }
-
-      // Verify password before deletion
-      const isPasswordValid = await user.comparePassword(password);
-      if (!isPasswordValid) {
-        return res.status(400).json({
-          success: false,
-          error: 'Password is incorrect',
-          code: 'INVALID_PASSWORD',
-          timestamp: new Date().toISOString()
-        });
-      }
-    }
-
-    // Store user info for email before deletion
-    const userEmail = user.email;
-    const userName = user.name;
-
-    try {
-      // Complete data cleanup - this would need to be expanded based on your data models
-      // For now, we'll implement the user cleanup and prepare for related data cleanup
-      
-      // 1. Delete or anonymize user chats and messages
-      // Note: This would require Chat and Message models to be implemented
-      // const Chat = require('../models/Chat');
-      // const Message = require('../models/Message');
-      // await Chat.deleteMany({ participants: user._id });
-      // await Message.deleteMany({ sender: user._id });
-
-      // 2. Clean up any uploaded files
-      // This would involve deleting files from storage service
-      
-      // 3. Remove user from any analytics data
-      // This would clean up ChatAnalytics collections
-      
-      // 4. Clear any cached data
-      // This would clear Redis cache if implemented
-
-      // 5. Soft delete user account with complete anonymization
-      user.isActive = false;
-      user.email = `deleted_${Date.now()}_${crypto.randomBytes(8).toString('hex')}@deleted.local`;
-      user.name = 'Deleted User';
-      user.password = undefined;
-      user.googleId = undefined;
-      user.avatar = null;
-      
-      // Clear all personal information
-      user.profile = {
-        firstName: undefined,
-        lastName: undefined,
-        bio: undefined,
-        location: undefined,
-        dateOfBirth: undefined
-      };
-      
-      // Clear preferences and couple info
-      user.preferences = {
-        language: 'en',
-        notifications: { email: false, push: false },
-        privacy: { showOnlineStatus: false, allowAnalytics: false }
-      };
-      
-      user.coupleInfo = {
-        relationshipStartDate: undefined,
-        anniversaryDate: undefined,
-        coupleTheme: 'classic'
-      };
-      
-      // Clear security tokens
-      user.passwordResetToken = undefined;
-      user.passwordResetExpires = undefined;
-      user.emailVerificationToken = undefined;
-      user.emailVerificationExpires = undefined;
-      user.refreshTokens = [];
-      
-      await user.save({ validateBeforeSave: false });
-
-      // Clear auth cookie
-      clearTokenCookie(res);
-
-      // Send account deletion confirmation email (don't block response if email fails)
-      try {
-        await emailService.sendAccountDeletionEmail(userEmail, userName);
-      } catch (emailError) {
-        console.error('Failed to send account deletion email:', emailError);
-        // Continue with deletion even if email fails
-      }
-
-      console.log(`Account deleted for user: ${userEmail} at ${new Date().toISOString()}`);
-
-      res.status(200).json({
-        success: true,
-        message: 'Account and all associated data have been permanently deleted',
-        timestamp: new Date().toISOString()
-      });
-
-    } catch (cleanupError) {
-      console.error('Error during account cleanup:', cleanupError);
-      
-      // If cleanup fails, still try to deactivate the account
-      user.isActive = false;
-      await user.save({ validateBeforeSave: false });
-      
-      res.status(500).json({
-        success: false,
-        error: 'Account deactivated but some data cleanup may have failed. Please contact support.',
-        code: 'CLEANUP_ERROR',
-        timestamp: new Date().toISOString()
-      });
-    }
-
-  } catch (error) {
-    console.error('Delete account error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Server error deleting account',
-      code: 'INTERNAL_ERROR',
-      timestamp: new Date().toISOString(),
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined
-    });
+  const user = await User.findById(req.userId);
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
   }
-};
+
+  // For Google OAuth users, skip password verification
+  if (user.authProvider === 'local') {
+    if (!password) {
+      return next(new AppError('Password is required to delete account', 400, 'PASSWORD_REQUIRED'));
+    }
+
+    // Verify password before deletion
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      return next(new AppError('Password is incorrect', 400, 'INVALID_PASSWORD'));
+    }
+  }
+
+  // Store user info for email before deletion
+  const userEmail = user.email;
+  const userName = user.name;
+
+  // Complete data cleanup - this would need to be expanded based on your data models
+  // For now, we'll implement the user cleanup and prepare for related data cleanup
+  
+  // 1. Delete or anonymize user chats and messages
+  // Note: This would require Chat and Message models to be implemented
+  // const Chat = require('../models/Chat');
+  // const Message = require('../models/Message');
+  // await Chat.deleteMany({ participants: user._id });
+  // await Message.deleteMany({ sender: user._id });
+
+  // 2. Clean up any uploaded files
+  // This would involve deleting files from storage service
+  
+  // 3. Remove user from any analytics data
+  // This would clean up ChatAnalytics collections
+  
+  // 4. Clear any cached data
+  // This would clear Redis cache if implemented
+
+  // 5. Soft delete user account with complete anonymization
+  user.isActive = false;
+  user.email = `deleted_${Date.now()}_${crypto.randomBytes(8).toString('hex')}@deleted.local`;
+  user.name = 'Deleted User';
+  user.password = undefined;
+  user.googleId = undefined;
+  user.avatar = null;
+  
+  // Clear all personal information
+  user.profile = {
+    firstName: undefined,
+    lastName: undefined,
+    bio: undefined,
+    location: undefined,
+    dateOfBirth: undefined
+  };
+  
+  // Clear preferences and couple info
+  user.preferences = {
+    language: 'en',
+    notifications: { email: false, push: false },
+    privacy: { showOnlineStatus: false, allowAnalytics: false }
+  };
+  
+  user.coupleInfo = {
+    relationshipStartDate: undefined,
+    anniversaryDate: undefined,
+    coupleTheme: 'classic'
+  };
+  
+  // Clear security tokens
+  user.passwordResetToken = undefined;
+  user.passwordResetExpires = undefined;
+  user.emailVerificationToken = undefined;
+  user.emailVerificationExpires = undefined;
+  user.refreshTokens = [];
+  
+  await user.save({ validateBeforeSave: false });
+
+  // Clear auth cookie
+  clearTokenCookie(res);
+
+  // Send account deletion confirmation email (don't block response if email fails)
+  try {
+    await emailService.sendAccountDeletionEmail(userEmail, userName);
+  } catch (emailError) {
+    console.error('Failed to send account deletion email:', emailError);
+    // Continue with deletion even if email fails
+  }
+
+  console.log(`Account deleted for user: ${userEmail} at ${new Date().toISOString()}`);
+
+  res.status(200).json({
+    success: true,
+    message: 'Account and all associated data have been permanently deleted',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // Google OAuth Login
 exports.googleLogin = async (req, res) => {
@@ -978,3 +755,249 @@ exports.resendEmailVerification = async (req, res) => {
     });
   }
 };
+
+// Get Privacy Settings
+exports.getPrivacySettings = catchAsync(async (req, res, next) => {
+  const result = await dataManagementService.getPrivacySettings(req.userId);
+  
+  // Log privacy settings access
+  await auditLogger.logPrivacyEvent({
+    userId: req.userId,
+    action: 'privacy_settings_viewed',
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+
+  res.status(200).json({
+    success: true,
+    data: result.privacySettings
+  });
+});
+
+// Update Privacy Settings
+exports.updatePrivacySettings = catchAsync(async (req, res, next) => {
+  const result = await dataManagementService.updatePrivacySettings(req.userId, req.body);
+  
+  // Log privacy settings change
+  await auditLogger.logPrivacyEvent({
+    userId: req.userId,
+    action: 'privacy_settings_updated',
+    changes: req.body,
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Privacy settings updated successfully',
+    data: result.privacySettings
+  });
+});
+
+// Export User Data (GDPR compliance)
+exports.exportUserData = catchAsync(async (req, res, next) => {
+  const { format = 'json', includeMessages = true, includeAnalytics = false } = req.query;
+  
+  const result = await dataManagementService.exportUserData(req.userId, {
+    format,
+    includeMessages: includeMessages === 'true',
+    includeAnalytics: includeAnalytics === 'true',
+    encryptExport: true
+  });
+
+  // Log data export
+  await auditLogger.logPrivacyEvent({
+    userId: req.userId,
+    action: 'data_exported',
+    metadata: {
+      format,
+      includeMessages,
+      includeAnalytics,
+      exportId: result.exportId
+    },
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Data export completed successfully',
+    exportId: result.exportId,
+    exportedAt: result.exportedAt,
+    data: result.data
+  });
+});
+
+// Delete User Data (Enhanced GDPR compliance)
+exports.deleteUserDataGDPR = catchAsync(async (req, res, next) => {
+  const { password, keepAnonymized = false, reason = 'user_request' } = req.body;
+
+  const user = await User.findById(req.userId);
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
+  }
+
+  // For local auth users, verify password
+  if (user.authProvider === 'local') {
+    if (!password) {
+      return next(new AppError('Password is required to delete account', 400, 'PASSWORD_REQUIRED'));
+    }
+
+    const isPasswordValid = await user.comparePassword(password);
+    if (!isPasswordValid) {
+      // Log failed deletion attempt
+      await auditLogger.logSecurityEvent({
+        userId: req.userId,
+        action: 'failed_account_deletion',
+        severity: 'medium',
+        ipAddress: req.ip,
+        userAgent: req.get('User-Agent'),
+        details: 'Invalid password provided for account deletion'
+      });
+      
+      return next(new AppError('Password is incorrect', 400, 'INVALID_PASSWORD'));
+    }
+  }
+
+  // Perform comprehensive data deletion
+  const deletionResult = await dataManagementService.deleteUserData(req.userId, {
+    immediate: true,
+    keepAnonymized: keepAnonymized === 'true',
+    reason,
+    requestedBy: req.userId
+  });
+
+  // Log successful data deletion
+  await auditLogger.logPrivacyEvent({
+    userId: req.userId,
+    action: 'complete_data_deletion',
+    metadata: {
+      deletionId: deletionResult.deletionId,
+      keepAnonymized,
+      reason,
+      summary: deletionResult.summary
+    },
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent')
+  });
+
+  // Clear auth cookie
+  clearTokenCookie(res);
+
+  res.status(200).json({
+    success: true,
+    message: 'All user data has been permanently deleted',
+    deletionId: deletionResult.deletionId,
+    deletedAt: deletionResult.deletedAt,
+    summary: deletionResult.summary
+  });
+});
+
+// Get Data Deletion Status
+exports.getDeletionStatus = catchAsync(async (req, res, next) => {
+  const { deletionId } = req.params;
+  
+  const status = dataManagementService.getDeletionStatus(deletionId);
+  
+  if (!status.found) {
+    return next(new AppError('Deletion record not found', 404, 'DELETION_NOT_FOUND'));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: status
+  });
+});
+
+// Session Timeout Configuration
+exports.updateSessionTimeout = catchAsync(async (req, res, next) => {
+  const { timeoutMinutes } = req.body;
+  
+  if (!timeoutMinutes || timeoutMinutes < 5 || timeoutMinutes > 1440) {
+    return next(new AppError('Timeout must be between 5 and 1440 minutes', 400, 'INVALID_TIMEOUT'));
+  }
+
+  const user = await User.findByIdAndUpdate(
+    req.userId,
+    { 
+      $set: { 
+        'preferences.security.sessionTimeoutMinutes': timeoutMinutes,
+        'preferences.security.sessionTimeoutUpdatedAt': new Date()
+      }
+    },
+    { new: true }
+  );
+
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
+  }
+
+  // Log session timeout change
+  await auditLogger.logSecurityEvent({
+    userId: req.userId,
+    action: 'session_timeout_updated',
+    severity: 'low',
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent'),
+    details: `Session timeout changed to ${timeoutMinutes} minutes`
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Session timeout updated successfully',
+    sessionTimeoutMinutes: timeoutMinutes
+  });
+});
+
+// Get Security Events for User
+exports.getSecurityEvents = catchAsync(async (req, res, next) => {
+  const { limit = 50, startDate, endDate } = req.query;
+  
+  const events = await auditLogger.searchLogs({
+    userId: req.userId,
+    type: 'security',
+    startDate,
+    endDate,
+    limit: parseInt(limit)
+  });
+
+  res.status(200).json({
+    success: true,
+    data: {
+      events,
+      total: events.length
+    }
+  });
+});
+
+// Revoke All Sessions (Security feature)
+exports.revokeAllSessions = catchAsync(async (req, res, next) => {
+  const user = await User.findById(req.userId);
+  
+  if (!user) {
+    return next(new AppError('User not found', 404, 'USER_NOT_FOUND'));
+  }
+
+  // Clear all refresh tokens
+  user.refreshTokens = [];
+  user.tokenVersion = (user.tokenVersion || 0) + 1; // Invalidate all existing JWTs
+  await user.save();
+
+  // Log session revocation
+  await auditLogger.logSecurityEvent({
+    userId: req.userId,
+    action: 'all_sessions_revoked',
+    severity: 'medium',
+    ipAddress: req.ip,
+    userAgent: req.get('User-Agent'),
+    details: 'User revoked all active sessions'
+  });
+
+  // Clear current session cookie
+  clearTokenCookie(res);
+
+  res.status(200).json({
+    success: true,
+    message: 'All sessions have been revoked. Please log in again.'
+  });
+});
